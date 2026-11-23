@@ -132,53 +132,90 @@ async function importGoodnotes(files, font) {
   if (!layout) throw new Error('In dieser GoodNotes-Datei steckt keine Handschrift-Vorlage. Importiere die Vorlage-PDF in GoodNotes, schreib darauf und exportiere dann das Notizbuch.');
 
   const templates = new Map(), pages = new Map();
-  for (const rec of readDelimited(await get('index.events.pb'))) {
-    const top = readPb(rec);
+  for (const rec of readDelimited((await get('index.events.pb')) || new Uint8Array(0))) {
+    let top;
+    try { top = readPb(rec); } catch { continue; }
     for (const [f, v] of top) {
       if (!(v instanceof Uint8Array) || f === 1) continue;
+      let m;
+      try { m = readPb(v); } catch { continue; }
       if (f === 2) {
-        const m = readPb(v);
         const size = pbGet(m, 8);
         const t = { id: pbStr(pbGet(m, 2)), att: pbStr(pbGet(m, 4)), pageNo: pbGet(m, 5) };
-        if (size) { const s = readPb(size); t.w = pbGet(s, 1); t.h = pbGet(s, 2); }
+        if (size instanceof Uint8Array) { const s = readPb(size); t.w = pbGet(s, 1); t.h = pbGet(s, 2); }
         if (t.id) templates.set(t.id, { ...(templates.get(t.id) || {}), ...Object.fromEntries(Object.entries(t).filter(([, x]) => x !== undefined)) });
       } else if (f === 54) {
-        const m = readPb(v);
         const id = pbStr(pbGet(m, 2));
-        const prev = pages.get(id) || {};
-        const tpl = pbGet(m, 3);
-        if (tpl) prev.template = pbStr(pbGet(readPb(tpl), 1));
+        if (!id) continue;
+        const prev = pages.get(id) || { id };
+        const tpl = pbGet(m, 3), ord = pbGet(m, 4);
+        if (tpl instanceof Uint8Array) prev.template = pbStr(pbGet(readPb(tpl), 1));
+        if (ord instanceof Uint8Array) prev.order = pbStr(pbGet(readPb(ord), 1));
         pages.set(id, prev);
       }
     }
   }
 
+  // Seiten in Notizbuch-Reihenfolge; Strichdateien laut Seitenverzeichnis
+  const pageList = [...pages.values()].sort((a, b) => String(a.order || '').localeCompare(String(b.order || '')));
+  const notesIds = readDelimited((await get('index.notes.pb')) || new Uint8Array(0))
+    .map((r) => { try { return pbStr(pbGet(readPb(r), 1)); } catch { return null; } }).filter(Boolean);
+  // Seitengröße der Vorlage notfalls aus der PDF selbst (MediaBox)
+  const attPdf = new TextDecoder('latin1').decode(await get('attachments/' + attId));
+  const mb = attPdf.match(/\/MediaBox\s*\[\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/);
+  const pdfW = mb ? parseFloat(mb[1]) : layout.page[0];
+
+  const stats = { pages: pageList.length, notesFiles: notesIds.length, pagesWithStrokes: 0, strokes: 0, scale: [] };
   const byPage = new Map();
-  for (const [pageId, info] of pages) {
-    const t = templates.get(info.template);
-    if (!t || t.att !== attId) continue;
-    const notes = await get('notes/' + uuidPlusOne(pageId));
-    if (!notes) continue;
-    const k = layout.page[0] / (t.w || layout.page[0]);
-    const strokes = new Map(); // uuid -> stroke | null (gelöscht)
-    let lastHeaderDeleted = false;
+  const ours = pageList.filter((p) => templates.get(p.template)?.att === attId);
+  const usePages = ours.length ? ours : pageList;
+  for (let i = 0; i < Math.max(usePages.length, ours.length ? 0 : notesIds.length); i++) {
+    const p = usePages[i];
+    const t = p ? templates.get(p.template) || {} : {};
+    let notesId = p && notesIds.includes(uuidPlusOne(p.id)) ? uuidPlusOne(p.id) : null;
+    if (!notesId && p && notesIds.includes(p.id)) notesId = p.id;
+    if (!notesId) notesId = notesIds[pageList.indexOf(p) >= 0 ? pageList.indexOf(p) : i];
+    const notes = notesId ? await get('notes/' + notesId) : null;
+    if (!notes || !notes.length) continue;
+    const k = layout.page[0] / (t.w || pdfW);
+    stats.scale.push(Math.round(k * 1000) / 1000);
+    const strokes = new Map(); // Strich-ID -> letzter Stand (null = gelöscht/leer)
     for (const rec of readDelimited(notes)) {
-      const top = readPb(rec);
-      const body = pbGet(top, 7);
-      if (!(body instanceof Uint8Array)) { lastHeaderDeleted = pbGet(top, 3) === 1; continue; }
-      const m = readPb(body);
-      const id = pbStr(pbGet(m, 1));
+      let m;
+      try {
+        const body = pbGet(readPb(rec), 7);
+        if (!(body instanceof Uint8Array)) continue;
+        m = readPb(body);
+      } catch { continue; }
+      const id = pbStr(pbGet(m, 1)) || 's' + strokes.size;
       const blob = pbGet(m, 2);
-      if (lastHeaderDeleted || pbGet(m, 14) === 1 || !(blob instanceof Uint8Array) || !blob.length) { strokes.set(id, null); continue; }
-      const { width, points } = readStrokeTpl(appleLz4Decode(blob));
-      strokes.set(id, points.length ? { pts: points.map(([x, y]) => [x * k, y * k]), width: width * k } : null);
+      if (!(blob instanceof Uint8Array) || !blob.length) { strokes.set(id, null); continue; }
+      let st;
+      try { st = readStrokeTpl(appleLz4Decode(blob)); } catch { continue; }
+      strokes.set(id, st.points.length ? { pts: st.points.map(([x, y]) => [x * k, y * k]), width: st.width * k } : null);
     }
-    const pdfPage = (t.pageNo || 1) - 1;
-    const list = byPage.get(pdfPage) || [];
-    for (const s of strokes.values()) if (s) list.push(s);
-    byPage.set(pdfPage, list);
+    const live = [...strokes.values()].filter(Boolean);
+    if (live.length) stats.pagesWithStrokes++;
+    stats.strokes += live.length;
+    const pdfPage = t.pageNo ? t.pageNo - 1 : i;
+    byPage.set(pdfPage, (byPage.get(pdfPage) || []).concat(live));
   }
-  return assign(layout, byPage, font);
+  const res = assign(layout, byPage, font);
+  res.stats = stats;
+  if (!res.added) throw new Error(diagnose(stats, byPage, layout));
+  return res;
+}
+
+// Erklärt, warum keine Kästchen getroffen wurden (für Rückmeldungen).
+function diagnose(stats, byPage, layout) {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const list of byPage.values()) for (const s of list) for (const [x, y] of s.pts) {
+    x1 = Math.min(x1, x); x2 = Math.max(x2, x); y1 = Math.min(y1, y); y2 = Math.max(y2, y);
+  }
+  const area = isFinite(x1) ? `Striche liegen bei x ${Math.round(x1)}–${Math.round(x2)}, y ${Math.round(y1)}–${Math.round(y2)}` : 'keine Striche gelesen';
+  return `Keine Striche in den Kästchen gefunden. Details: ${stats.pages} Seiten, ${stats.notesFiles} Strichdateien, ` +
+    `${stats.strokes} Striche auf ${stats.pagesWithStrokes} Seiten, ${area}, Vorlage ${Math.round(layout.page[0])}×${Math.round(layout.page[1])}, ` +
+    `Maßstab ${stats.scale.join('/') || '?'}.`;
 }
 
 /* ---------- Notability (noch nicht mit echter Datei getestet) ---------- */

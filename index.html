@@ -47,6 +47,7 @@
           <li>Die Notiz als GoodNotes-Datei (.goodnotes) oder Notability-Notiz (.note) exportieren.</li>
           <li>Die Datei hier importieren. Jedes Kästchen wird eine Variante, die Strichdicke wird übernommen.</li>
         </ol>
+        <p class="muted small">Du kannst die Vorlage beliebig oft neu beschreiben und in eine bestehende Schrift importieren. Jeder Import fügt weitere Varianten hinzu.</p>
         <label class="field">Zeichen in der Vorlage und beim Alphabet-Schreiben
           <textarea id="tpl-chars" rows="3" spellcheck="false"></textarea>
         </label>
@@ -63,6 +64,11 @@
         </div>
         <div class="row">
           <button id="tpl-download" class="primary">Vorlage-PDF herunterladen</button>
+        </div>
+        <div class="row">
+          <label class="inline">Importieren in
+            <select id="tpl-target"></select>
+          </label>
           <label class="button primary">Beschriebene Vorlage importieren
             <input id="tpl-import" type="file" accept=".goodnotes,.note,.zip,application/zip,application/octet-stream" hidden>
           </label>

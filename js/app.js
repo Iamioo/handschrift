@@ -108,6 +108,7 @@ function renderFontList() {
     requestAnimationFrame(() => drawSample(li.querySelector('canvas'), f, 'Hallo Welt'));
     li.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => fontAction(f, b.dataset.a)));
   }
+  renderTemplateTarget();
 }
 
 function fontAction(f, a) {
@@ -162,12 +163,29 @@ $('tpl-download').addEventListener('click', async () => {
   await deliver(new Blob([bytes], { type: 'application/pdf' }), 'Handschrift-Vorlage.pdf');
 });
 
+function renderTemplateTarget() {
+  const sel = $('tpl-target');
+  const keep = sel.value;
+  sel.innerHTML = '';
+  for (const f of fonts) {
+    const o = document.createElement('option');
+    o.value = f.id;
+    o.textContent = f.name;
+    sel.appendChild(o);
+  }
+  const o = document.createElement('option');
+  o.value = '__new';
+  o.textContent = 'Neue Schrift anlegen';
+  sel.appendChild(o);
+  sel.value = [...sel.options].some((x) => x.value === keep) ? keep : (settings.activeId || '__new');
+}
+
 $('tpl-import').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  let f = activeFont();
-  if (!f || (Object.keys(f.glyphs).length && !confirm(`Die Buchstaben zur Schrift „${f.name}“ hinzufügen?\n\nAbbrechen legt stattdessen eine neue Schrift an.`))) {
+  let f = fonts.find((x) => x.id === $('tpl-target').value);
+  if (!f) {
     f = newFont(file.name.replace(/\.[^.]+$/, '') || 'Meine Schrift');
     fonts.push(f);
   }
