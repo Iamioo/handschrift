@@ -188,7 +188,8 @@ export function buildGoodnotes(pages, { title, paperPdf, paperName, lineSpacing,
     [15, 'v', device], [16, 'v', seq++],
     [17, 'm', [[1, 'v', 1], [2, 'm', version()]]],
     [18, 'm', [
-      [1, 'm', [[1, 'm', [[1, 'f', margin], [2, 'f', margin]]], [2, 'm', [[1, 'f', PAGE.w - margin], [2, 'f', PAGE.h - margin]]]]],
+      // Schreibbereich als Ursprung + Größe (im Original: 44 + 746,24 = 834,24 − 44)
+      [1, 'm', [[1, 'm', [[1, 'f', margin], [2, 'f', margin]]], [2, 'm', [[1, 'f', PAGE.w - 2 * margin], [2, 'f', PAGE.h - 2 * margin]]]]],
       [2, 'f', lineSpacing], [3, 'f', 1], [5, 'v', 1],
     ]],
     [19, 'm', [[2, 'm', version()]]],

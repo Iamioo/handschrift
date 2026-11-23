@@ -26,7 +26,7 @@ function dosTime(d) {
 }
 
 // entries: [{ name: 'a/b.txt', data: Uint8Array | string }]; Namen mit "/" am Ende sind Ordner.
-export function makeZip(entries) {
+export function makeZip(entries, { madeBy = 0x031e, dirAttr = ((0o40755 << 16) | 0x10) >>> 0 } = {}) {
   const { time, date } = dosTime(new Date());
   const parts = [];
   const central = [];
@@ -53,7 +53,7 @@ export function makeZip(entries) {
 
     const cen = new DataView(new ArrayBuffer(46));
     cen.setUint32(0, 0x02014b50, true);
-    cen.setUint16(4, 0x031e, true);            // erstellt unter Unix
+    cen.setUint16(4, madeBy, true);            // erstellt unter Unix
     cen.setUint16(6, 20, true);
     cen.setUint16(8, 0x0800, true);
     cen.setUint16(10, 0, true);
@@ -63,7 +63,7 @@ export function makeZip(entries) {
     cen.setUint32(20, data.length, true);
     cen.setUint32(24, data.length, true);
     cen.setUint16(28, name.length, true);
-    cen.setUint32(38, isDir ? ((0o40755 << 16) | 0x10) >>> 0 : (0o100644 << 16) >>> 0, true);
+    cen.setUint32(38, isDir ? dirAttr : (0o100644 << 16) >>> 0, true);
     cen.setUint32(42, offset, true);
     central.push(new Uint8Array(cen.buffer), name);
 

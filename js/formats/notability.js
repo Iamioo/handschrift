@@ -205,13 +205,20 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
 }
 
 // Notability sucht Session.plist im Ordner, der so heißt wie die Notiz (packagePath).
+// Nur ASCII, damit Dateiname, Ordner und packagePath sicher übereinstimmen.
 export function notePackageName(name) {
-  return (name || 'Handschrift').replace(/[\/\\:*?"<>|]+/g, '').trim() || 'Handschrift';
+  const t = (name || '')
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss')
+    .normalize('NFKD').replace(/[^A-Za-z0-9 _-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  return t || 'Handschrift';
 }
 
 export async function buildNotabilityFile(pages, { name, thumbnailPng }) {
   name = notePackageName(name);
   const { session, metadata, library } = buildNotability(pages, { name });
+  // Leerer Handschrift-Suchindex wie in echten Notability-Dateien
+  const index = writeBplist({ version: 7, minCompatibleVersion: 7, pages: {} });
   const dir = name + '/';
   return makeZip([
     { name: dir + 'Assets/' },
@@ -222,6 +229,8 @@ export async function buildNotabilityFile(pages, { name, thumbnailPng }) {
     { name: dir + 'metadata.plist', data: metadata },
     { name: dir + 'Images/' },
     { name: dir + 'PDFs/' },
+    { name: dir + 'HandwritingIndex/' },
+    { name: dir + 'HandwritingIndex/index.plist', data: index },
     { name: dir },
-  ]);
+  ], { madeBy: 0x0315, dirAttr: (0o40755 << 16) >>> 0 });
 }
