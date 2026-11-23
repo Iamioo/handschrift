@@ -1,11 +1,14 @@
 import { loadFonts, saveFonts, loadSettings, saveSettings, newFont, fontToFile, fontFromFile, safeFileName } from './store.js';
 import { LETTERS, EXTRA, PEN_EM, Pad, normalizeGlyph, denormalizeGlyph, drawGlyphThumb, drawSample } from './glyphs.js';
-import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS } from './render.js';
+import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat } from './render.js';
 import { buildPdf } from './pdf.js';
 import { buildGoodnotes } from './formats/goodnotes.js';
-import { buildNotabilityFile } from './formats/notability.js';
+import { buildNotabilityFile, notePackageName } from './formats/notability.js';
 import { canvasBlob } from './formats/zip.js';
 import { makeTestFont } from './testfont.js';
+import { buildTemplatePdf, importFilledTemplate } from './template.js';
+
+const DEFAULT_CHARS = LETTERS.concat(EXTRA).join('');
 import { Editor } from './editor.js';
 
 const $ = (id) => document.getElementById(id);
@@ -16,7 +19,8 @@ let fonts = loadFonts();
 const settings = loadSettings({
   ...DEFAULT_OPTS,
   activeId: null,
-  extra: false,
+  chars: DEFAULT_CHARS,
+  tplCopies: 1,
   auto: false,
   text: DEFAULT_TEXT,
   view: 'capture',
@@ -29,6 +33,13 @@ if (!fonts.length) {
   saveFonts(fonts);
 }
 if (!fonts.find((f) => f.id === settings.activeId)) settings.activeId = fonts[0]?.id || null;
+
+// Zeichenliste aus den Einstellungen, ohne Leerraum und doppelte Zeichen.
+const charsFrom = (s) => [...new Set([...(s || '')].filter((c) => c.trim()))];
+const charset = () => {
+  const c = charsFrom(settings.chars);
+  return c.length ? c : charsFrom(DEFAULT_CHARS);
+};
 
 const activeFont = () => fonts.find((f) => f.id === settings.activeId) || null;
 const persist = () => { saveFonts(fonts); saveSettings(settings); };
@@ -133,6 +144,48 @@ $('btn-test-font').addEventListener('click', () => {
   show('text');
 });
 
+/* ---------- Vorlage zum Nachschreiben ---------- */
+
+$('tpl-chars').value = charset().join(' ');
+$('tpl-chars').addEventListener('input', () => { settings.chars = $('tpl-chars').value; saveSettings(settings); });
+$('tpl-reset').addEventListener('click', () => {
+  settings.chars = DEFAULT_CHARS;
+  $('tpl-chars').value = charset().join(' ');
+  saveSettings(settings);
+});
+$('tpl-copies').value = String(settings.tplCopies);
+$('tpl-copies').addEventListener('change', () => { settings.tplCopies = Number($('tpl-copies').value); saveSettings(settings); });
+
+$('tpl-download').addEventListener('click', async () => {
+  const { bytes, layout: L } = buildTemplatePdf(charset(), settings.tplCopies);
+  $('tpl-status').textContent = `Vorlage mit ${charset().length} Zeichen, ${settings.tplCopies} Durchgang/Durchgänge, ${L.pages} Seiten.`;
+  await deliver(new Blob([bytes], { type: 'application/pdf' }), 'Handschrift-Vorlage.pdf');
+});
+
+$('tpl-import').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  let f = activeFont();
+  if (!f || (Object.keys(f.glyphs).length && !confirm(`Die Buchstaben zur Schrift „${f.name}“ hinzufügen?\n\nAbbrechen legt stattdessen eine neue Schrift an.`))) {
+    f = newFont(file.name.replace(/\.[^.]+$/, '') || 'Meine Schrift');
+    fonts.push(f);
+  }
+  $('tpl-status').textContent = 'Lese Datei …';
+  try {
+    const { added, chars } = await importFilledTemplate(new Uint8Array(await file.arrayBuffer()), f);
+    if (!added) throw new Error('Auf der Vorlage wurden keine Striche in den Kästchen gefunden.');
+    settings.activeId = f.id;
+    persist();
+    renderFontList();
+    $('tpl-status').textContent = `${added} Varianten für ${chars} Zeichen in „${f.name}“ übernommen.`;
+  } catch (err) {
+    console.error(err);
+    if (!Object.keys(f.glyphs).length) { fonts = fonts.filter((x) => x !== f); }
+    $('tpl-status').textContent = 'Import fehlgeschlagen: ' + (err.message || err);
+  }
+});
+
 $('inp-import').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
@@ -160,14 +213,13 @@ const pad = new Pad($('pad'), {
   },
 });
 
-const charset = () => (settings.extra ? LETTERS.concat(EXTRA) : LETTERS);
 
 function startCapture() {
   const f = activeFont();
   if (!f) { show('fonts'); return; }
   $('cap-auto').checked = settings.auto;
-  $('cap-extra').checked = settings.extra;
   if (!f.pass) f.pass = { idx: 0, added: {} };
+  f.pass.idx = Math.min(f.pass.idx, charset().length - 1);
   cap.mode = 'pass';
   showChar();
   renderGrid();
@@ -269,13 +321,6 @@ $('cap-back').addEventListener('click', back);
 $('cap-undo').addEventListener('click', () => pad.undo());
 $('cap-clear').addEventListener('click', () => pad.clear());
 $('cap-auto').addEventListener('change', (e) => { settings.auto = e.target.checked; saveSettings(settings); });
-$('cap-extra').addEventListener('change', (e) => {
-  settings.extra = e.target.checked;
-  saveSettings(settings);
-  const f = activeFont();
-  if (f?.pass) f.pass.idx = Math.min(f.pass.idx, charset().length - 1);
-  showChar(); renderGrid();
-});
 document.addEventListener('keydown', (e) => {
   if (settings.view !== 'capture' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
   if (e.key === 'Enter' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
@@ -369,6 +414,8 @@ $('t-text').value = settings.text;
 $('t-text').addEventListener('input', () => { settings.text = $('t-text').value; changed(); });
 $('t-color').value = settings.color;
 $('t-color').addEventListener('input', () => { settings.color = $('t-color').value; changed(); });
+$('t-format').value = settings.pageFormat;
+$('t-format').addEventListener('change', () => { settings.pageFormat = $('t-format').value; changed(); });
 $('t-paper').value = settings.paper;
 $('t-paper').addEventListener('change', () => { settings.paper = $('t-paper').value; changed(); });
 $('t-font').addEventListener('change', () => { settings.activeId = $('t-font').value; changed(); });
@@ -404,6 +451,7 @@ function generate(byUser) {
   const f = activeFont();
   if (dirty && byUser && !confirm('Deine Änderungen auf den Seiten gehen beim Neu-Erzeugen verloren. Fortfahren?')) return;
   dirty = false;
+  setPageFormat(settings.pageFormat);
   $('t-generate').textContent = 'Erzeugen';
   const warn = $('t-warn');
   if (!f || !Object.keys(f.glyphs).length) {
@@ -462,7 +510,7 @@ async function exportAs(kind) {
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.goodnotes`);
     } else if (kind === 'notability') {
       const bytes = await buildNotabilityFile(current.pages, { name: title, thumbnailPng: await thumbnail('image/png') });
-      await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.note`);
+      await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${notePackageName(title)}.note`);
     } else {
       const bytes = buildPdf(current.pages, current.lines, { editable: kind === 'ink', title });
       await deliver(new Blob([bytes], { type: 'application/pdf' }), `${base}${kind === 'ink' ? '-striche' : ''}.pdf`);

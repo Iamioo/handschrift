@@ -81,6 +81,17 @@ button.danger { color: #c0392b; }
 .font-item .name { font-weight: 600; }
 .font-item canvas { width: 220px; height: 48px; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
 
+.steps { margin: 4px 0 12px; padding-left: 22px; }
+.steps li { margin-bottom: 4px; }
+.field { display: block; font-size: 14px; color: var(--muted); }
+.field textarea {
+  display: block; width: 100%; margin-top: 4px; padding: 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 18px; letter-spacing: 2px;
+}
+label.inline { display: inline-flex; gap: 6px; align-items: center; }
+label.inline select { padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
 /* Aufnahme */
 .capture-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .target {

@@ -11,7 +11,8 @@ Live-Version: https://iamioo.github.io/handschrift/
 1. Alphabet schreiben: A bis Z, Ä, Ö, Ü, a bis z, ä, ö, ü und ß. Zahlen und Satzzeichen lassen sich zuschalten. Ein Schreibfeld mit Grund-, Mittel- und Oberlinie zeigt, wo der Buchstabe hingehört. Stiftdruck fließt in die Strichbreite ein, und sobald der Pencil einmal benutzt wurde, ignoriert das Feld den Handballen.
 2. Mehrere Durchgänge: Jeder Durchgang ergänzt eine Variante pro Zeichen. In der Übersicht kannst du einzelne Varianten löschen oder gezielt neue schreiben.
 3. Testschrift: Unter „Schriften“ legt „Testschrift hinzufügen“ eine fertige Schrift mit drei Varianten pro Zeichen an. Damit kannst du Textsatz und Export ausprobieren, ohne vorher selbst zu schreiben.
-4. Mehrere Schriften: Du kannst beliebig viele Schriften anlegen, umbenennen, als `.handschrift.json` herunterladen und wieder importieren.
+4. Vorlage zum Nachschreiben: Die App erzeugt eine PDF mit Kästchen, in denen jedes Zeichen hellgrau vorgedruckt ist. Du öffnest sie in GoodNotes oder Notability, schreibst alles mit schwarzem Stift nach, exportierst die Notiz (.goodnotes oder .note) und importierst sie wieder. Jedes Kästchen wird eine Variante, und die App übernimmt die Strichdicke deines Stifts. Welche Zeichen in der Vorlage stehen, legst du unter „Schriften“ fest.
+5. Mehrere Schriften: Du kannst beliebig viele Schriften anlegen, umbenennen, als `.handschrift.json` herunterladen und wieder importieren.
 4. Text setzen: Schriftgröße, Zeilen-, Buchstaben- und Wortabstand, Stärke der Variation, Stiftdicke, Farbe und Papier (blanko, liniert, kariert) sind einstellbar. „Neu würfeln“ mischt die Varianten neu.
 5. Nachbearbeiten: Auf den erzeugten Seiten kannst du radieren, mit dem Stift ergänzen und Wörter mit der Auswahl verschieben.
 6. Export: Die App schreibt echte GoodNotes-6-Notizbücher (`.goodnotes`) und Notability-Notizen (`.note`) mit Stiftstrichen, die du dort radieren und verschieben kannst. Dazu kommen ein PDF mit Freihand-Anmerkungen und ein flaches PDF. Auf dem iPad öffnet sich das Teilen-Menü, über das du die Datei direkt an die App schickst.
@@ -47,6 +48,9 @@ Danach `http://localhost:8765` öffnen. Auf dem iPad im selben WLAN geht das üb
 | `js/formats/goodnotes.js` | Export als GoodNotes-6-Notizbuch |
 | `js/formats/notability.js` | Export als Notability-Notiz |
 | `js/formats/zip.js`, `js/formats/bplist.js` | ZIP- und Binär-Plist-Schreiber |
+| `js/template.js` | Vorlage-PDF erzeugen, beschriebene Vorlage zurücklesen |
+| `js/formats/readers.js` | ZIP-, Plist-, Protobuf- und LZ4-Leser für den Import |
+| `js/testfont.js` | Eingebaute Testschrift |
 | `js/store.js` | Speichern, Import und Export der Schriften |
 | `js/app.js` | Oberfläche und Ablauf |
 

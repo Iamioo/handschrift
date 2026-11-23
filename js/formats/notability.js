@@ -204,9 +204,15 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
   return { session, metadata, library, numCurves };
 }
 
+// Notability sucht Session.plist im Ordner, der so heißt wie die Notiz (packagePath).
+export function notePackageName(name) {
+  return (name || 'Handschrift').replace(/[\/\\:*?"<>|]+/g, '').trim() || 'Handschrift';
+}
+
 export async function buildNotabilityFile(pages, { name, thumbnailPng }) {
+  name = notePackageName(name);
   const { session, metadata, library } = buildNotability(pages, { name });
-  const dir = 'Notability/';
+  const dir = name + '/';
   return makeZip([
     { name: dir + 'Assets/' },
     { name: dir + 'Session.plist', data: session },

@@ -37,6 +37,38 @@
         </div>
         <ul id="font-list" class="font-list"></ul>
       </div>
+
+      <div class="panel">
+        <h2>Vorlage zum Nachschreiben</h2>
+        <p class="muted">So bekommt deine Schrift genau den Stift aus GoodNotes oder Notability:</p>
+        <ol class="muted steps">
+          <li>Vorlage-PDF herunterladen. Jedes Zeichen steht hellgrau in einem eigenen Kästchen.</li>
+          <li>Die PDF in GoodNotes oder Notability öffnen und alle Zeichen mit schwarzem Stift nachschreiben.</li>
+          <li>Die Notiz als GoodNotes-Datei (.goodnotes) oder Notability-Notiz (.note) exportieren.</li>
+          <li>Die Datei hier importieren. Jedes Kästchen wird eine Variante, die Strichdicke wird übernommen.</li>
+        </ol>
+        <label class="field">Zeichen in der Vorlage und beim Alphabet-Schreiben
+          <textarea id="tpl-chars" rows="3" spellcheck="false"></textarea>
+        </label>
+        <p class="muted small">Zeichen hinzufügen oder löschen, Leerzeichen und Zeilenumbrüche werden ignoriert.</p>
+        <div class="row">
+          <button id="tpl-reset">Standardzeichen</button>
+          <label class="inline">Durchgänge
+            <select id="tpl-copies">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="tpl-download" class="primary">Vorlage-PDF herunterladen</button>
+          <label class="button primary">Beschriebene Vorlage importieren
+            <input id="tpl-import" type="file" accept=".goodnotes,.note,.zip,application/zip,application/octet-stream" hidden>
+          </label>
+        </div>
+        <p id="tpl-status" class="muted small"></p>
+      </div>
     </section>
 
     <!-- Alphabet schreiben -->
@@ -59,7 +91,6 @@
         </div>
         <div class="row center small">
           <label><input type="checkbox" id="cap-auto"> Automatisch weiter nach dem Absetzen</label>
-          <label><input type="checkbox" id="cap-extra"> Zahlen und Satzzeichen mit aufnehmen</label>
         </div>
         <p class="muted small center">Schreib den Buchstaben auf die Grundlinie (dunkle Linie). Kleinbuchstaben reichen bis zur gestrichelten Mittellinie. Leer lassen und „Weiter“ überspringt ein Zeichen.</p>
       </div>
@@ -79,6 +110,13 @@
           </label>
           <label>Text
             <textarea id="t-text" rows="7"></textarea>
+          </label>
+          <label>Seitenformat
+            <select id="t-format">
+              <option value="goodnotes">GoodNotes-Standard</option>
+              <option value="a4">A4</option>
+              <option value="letter">US Letter</option>
+            </select>
           </label>
           <label>Schriftgröße <span id="v-size"></span>
             <input type="range" id="t-size" min="10" max="72" step="1">

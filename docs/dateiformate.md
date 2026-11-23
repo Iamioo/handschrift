@@ -82,6 +82,17 @@ GoodNotes: Jede Seite bekommt ein Ereignis 54 (Seite mit Sortierschlüssel) und 
 
 Geprüft: Beide Dateien lassen sich mit Python (`zipfile`, `plistlib`, eigener Protobuf- und tpl-Leser) fehlerfrei zurücklesen. Aufbau und Größe der Einträge stimmen mit den Beispieldateien überein.
 
+Rückmeldung vom iPad: Der GoodNotes-Import funktioniert. Die Notability-Notiz war leer, weil der Ordner in der Datei anders hieß als die Notiz (`packagePath`). Das ist behoben.
+
+## Vorlage zum Nachschreiben
+
+Die Vorlage-PDF trägt ihr Kästchen-Layout als Kommentarzeile `%HANDSCHRIFT-VORLAGE:<base64-JSON>` am Dateianfang.
+GoodNotes und Notability speichern importierte PDFs unverändert (GoodNotes unter `attachments/`, Notability unter `PDFs/`), so findet die App das Layout beim Rückimport wieder.
+
+GoodNotes: Ereignis 2 (Papiervorlage) verweist mit Feld 4 auf den Anhang und mit Feld 5 vermutlich auf die PDF-Seite. Ereignis 54 (Seite) verweist mit Feld 3 auf die Vorlage. Die Striche werden mit Vorlagenbreite / Seitenbreite in PDF-Punkte umgerechnet und über die Mitte ihres Rahmens einem Kästchen zugeordnet. Gelöschte Striche (Kopf-Feld 3 = 1 oder Inhalt-Feld 14 = 1) werden übersprungen.
+
+Notability: Noch ohne echte Beispieldatei. Angenommen wird, dass die PDF-Seiten auf Blattbreite skaliert ohne Abstand untereinander liegen.
+
 Noch offen:
 
 1. Import auf dem iPad testen (radieren, verschieben, Seitenanzahl).

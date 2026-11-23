@@ -1,7 +1,17 @@
 // Setzt einen Text mit einer Handschrift auf A4-Seiten (Einheit: PDF-Punkte, y nach unten).
 import { PEN_EM, strokePath } from './glyphs.js';
 
-export const PAGE = { w: 595.28, h: 841.89 };
+// Seitenformate in PDF-Punkten. "goodnotes" entspricht dem Standardpapier von GoodNotes.
+export const PAGE_FORMATS = {
+  goodnotes: { w: 834.24, h: 1078.82, label: 'GoodNotes-Standard' },
+  a4: { w: 595.28, h: 841.89, label: 'A4' },
+  letter: { w: 612, h: 792, label: 'US Letter' },
+};
+export const PAGE = { w: PAGE_FORMATS.goodnotes.w, h: PAGE_FORMATS.goodnotes.h };
+export function setPageFormat(key) {
+  const f = PAGE_FORMATS[key] || PAGE_FORMATS.goodnotes;
+  PAGE.w = f.w; PAGE.h = f.h;
+}
 
 export function mulberry32(a) {
   return function () {
@@ -50,7 +60,8 @@ function umlautDots(v, upper, rnd) {
 }
 
 export const DEFAULT_OPTS = {
-  size: 22, lineHeight: 1.6, letterSpacing: 0, wordSpacing: 0.38, variation: 0.6,
+  pageFormat: 'goodnotes',
+  size: 22, lineHeight: 1.45, letterSpacing: 0, wordSpacing: 0.38, variation: 0.6,
   penScale: 1, color: '#1b2a4a', paper: 'lined', margin: 56, seed: 1,
 };
 
@@ -60,7 +71,8 @@ export function layout(text, font, o) {
   const size = o.size;
   const lh = size * o.lineHeight;
   const left = o.margin, right = PAGE.w - o.margin, top = o.margin, bottom = PAGE.h - o.margin;
-  const penW = PEN_EM * o.penScale * size;
+  // Schriften aus einer beschriebenen Vorlage bringen ihre eigene Strichdicke mit (font.penEm).
+  const penW = (font.penEm || PEN_EM) * o.penScale * size;
   const pages = [];
   const missing = new Set();
   const lastVar = {};
