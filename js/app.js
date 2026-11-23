@@ -5,6 +5,7 @@ import { buildPdf } from './pdf.js';
 import { buildGoodnotes } from './formats/goodnotes.js';
 import { buildNotabilityFile } from './formats/notability.js';
 import { canvasBlob } from './formats/zip.js';
+import { makeTestFont } from './testfont.js';
 import { Editor } from './editor.js';
 
 const $ = (id) => document.getElementById(id);
@@ -122,6 +123,14 @@ $('btn-new-font').addEventListener('click', () => {
   settings.activeId = f.id;
   persist();
   show('capture');
+});
+
+$('btn-test-font').addEventListener('click', () => {
+  const f = makeTestFont();
+  fonts.push(f);
+  settings.activeId = f.id;
+  persist();
+  show('text');
 });
 
 $('inp-import').addEventListener('change', async (e) => {
