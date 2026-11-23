@@ -82,7 +82,13 @@ GoodNotes: Jede Seite bekommt ein Ereignis 54 (Seite mit Sortierschlüssel) und 
 
 Geprüft: Beide Dateien lassen sich mit Python (`zipfile`, `plistlib`, eigener Protobuf- und tpl-Leser) fehlerfrei zurücklesen. Aufbau und Größe der Einträge stimmen mit den Beispieldateien überein.
 
-Rückmeldung vom iPad: Der GoodNotes-Import funktioniert. Die Notability-Notiz war leer, weil der Ordner in der Datei anders hieß als die Notiz (`packagePath`). Das ist behoben.
+Rückmeldung vom iPad: Der GoodNotes-Import funktioniert.
+
+Notability (getestet mit Version 16.14) zeigte unsere Notizen zuerst leer an. Drei Ursachen, alle behoben:
+
+1. Der Ordner in der Datei muss so heißen wie `packagePath`. Die App nutzt dafür nur ASCII.
+2. `numcurves`, `numpoints` und `numfractionalwidths` müssen als UID-Verweis auf ein Zahlenobjekt stehen, nicht direkt im Dictionary.
+3. Der Plist-Schreiber muss gleiche Einzelwerte (Texte, Zahlen, Wahrheitswerte, Daten) zusammenfassen, wie Apple und Python es tun. Mit doppelt abgelegten Werten lädt Notability die Notiz, verwirft aber alle Striche. Gefunden mit vier Testdateien: Dieselbe Notiz, von Pythons `plistlib` neu geschrieben, zeigte die Striche. Die App erzeugt jetzt Byte für Byte dieselben Plists wie `plistlib`.
 
 ## Vorlage zum Nachschreiben
 

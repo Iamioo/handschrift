@@ -6,10 +6,32 @@ export class UID { constructor(n) { this.n = n; } }
 export class Real { constructor(v) { this.v = v; } }
 export class Int { constructor(v) { this.v = v; } }
 
+// Gleiche Einzelwerte (Text, Zahl, Wahrheitswert, Daten) werden nur einmal gespeichert,
+// genau wie bei Apples und Pythons Schreiber. Notability verwirft die Striche sonst beim Laden.
+function scalarKey(v) {
+  if (v === true) return 'T';
+  if (v === false) return 'F';
+  if (v === null || v === undefined) return 'N';
+  if (typeof v === 'string') return 's' + v;
+  if (v instanceof Int) return 'i' + v.v;
+  if (v instanceof Real) return 'r' + v.v;
+  if (typeof v === 'number') return (Number.isInteger(v) ? 'i' : 'r') + v;
+  if (v instanceof Uint8Array) {
+    let s = 'd';
+    for (let i = 0; i < v.length; i += 8192) s += String.fromCharCode(...v.subarray(i, i + 8192));
+    return s;
+  }
+  return null; // UID und Container werden nie zusammengefasst
+}
+
 export function writeBplist(root) {
   const objects = [];   // [{ kind, value, refs }]
+  const seen = new Map();
   const flatten = (v) => {
+    const key = scalarKey(v);
+    if (key !== null && seen.has(key)) return seen.get(key);
     const idx = objects.length;
+    if (key !== null) seen.set(key, idx);
     objects.push(null);
     if (Array.isArray(v)) {
       const refs = v.map(flatten);
