@@ -73,10 +73,12 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
     return A.mutableDict(keys, [strObj, empty()]);
   };
 
+  // Die drei Zähler stehen im Original als eigene Zahlenobjekte (UID-Verweis), nicht direkt im Dictionary.
+  // Direkt eingetragen liest Notability sie als 0 und zeigt eine leere Seite.
   const spatial = A.add({
-    numpoints: points.length / 2,
+    numpoints: A.add(points.length / 2),
     options: new Uint8Array(numCurves * 8),
-    numfractionalwidths: fracW.length,
+    numfractionalwidths: A.add(fracW.length),
     groupsArrays: empty(),
     curvesaltitudeangles: f32(altitude),
     curvespoints: f32(points),
@@ -90,7 +92,7 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
     curveswidth: f32(widths),
     curvesstyles: new Uint8Array(styles),
     bezierPathsDataDictionary: A.mutableDict(),
-    numcurves: numCurves,
+    numcurves: A.add(numCurves),
   });
   const overlay = A.add({ SpatialHash: spatial, $class: A.cls('HandwritingObject', ['HandwritingObject', 'NSObject']) });
   const backing = A.add({
