@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Handschrift">
+  <meta name="theme-color" content="#1f3a5f">
+  <title>Handschrift</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">✍︎ Handschrift</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" data-view="fonts">Schriften</button>
+      <button class="tab" data-view="capture">Alphabet schreiben</button>
+      <button class="tab" data-view="text">Text &amp; Export</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Schriften -->
+    <section id="view-fonts" class="view">
+      <div class="panel">
+        <h2>Deine Schriften</h2>
+        <p class="muted">Jede Schrift ist ein Satz deiner Buchstaben. Schreibst du das Alphabet mehrmals, bekommt jeder Buchstabe mehrere Varianten, und der Text sieht weniger gleichförmig aus.</p>
+        <div class="row">
+          <button id="btn-new-font" class="primary">Neue Schrift</button>
+          <label class="button">Schrift importieren
+            <input id="inp-import" type="file" accept=".json,application/json" hidden>
+          </label>
+        </div>
+        <ul id="font-list" class="font-list"></ul>
+      </div>
+    </section>
+
+    <!-- Alphabet schreiben -->
+    <section id="view-capture" class="view">
+      <div class="panel">
+        <div class="capture-head">
+          <div>
+            <h2 id="cap-title">Alphabet schreiben</h2>
+            <p id="cap-sub" class="muted"></p>
+          </div>
+          <div class="target" id="cap-target">A</div>
+        </div>
+        <div class="progress"><div id="cap-progress"></div></div>
+        <canvas id="pad" class="pad"></canvas>
+        <div class="row center">
+          <button id="cap-back">Zurück</button>
+          <button id="cap-undo">Rückgängig</button>
+          <button id="cap-clear">Löschen</button>
+          <button id="cap-next" class="primary">Weiter</button>
+        </div>
+        <div class="row center small">
+          <label><input type="checkbox" id="cap-auto"> Automatisch weiter nach dem Absetzen</label>
+          <label><input type="checkbox" id="cap-extra"> Zahlen und Satzzeichen mit aufnehmen</label>
+        </div>
+        <p class="muted small center">Schreib den Buchstaben auf die Grundlinie (dunkle Linie). Kleinbuchstaben reichen bis zur gestrichelten Mittellinie. Leer lassen und „Weiter“ überspringt ein Zeichen.</p>
+      </div>
+      <div class="panel">
+        <h3>Übersicht</h3>
+        <p class="muted small">Tippe auf ein Zeichen, um seine Varianten zu sehen, einzelne zu löschen oder eine neue zu schreiben.</p>
+        <div id="glyph-grid" class="glyph-grid"></div>
+      </div>
+    </section>
+
+    <!-- Text & Export -->
+    <section id="view-text" class="view">
+      <div class="text-layout">
+        <aside class="panel controls">
+          <label>Schrift
+            <select id="t-font"></select>
+          </label>
+          <label>Text
+            <textarea id="t-text" rows="7"></textarea>
+          </label>
+          <label>Schriftgröße <span id="v-size"></span>
+            <input type="range" id="t-size" min="10" max="72" step="1">
+          </label>
+          <label>Zeilenabstand <span id="v-lh"></span>
+            <input type="range" id="t-lh" min="1.1" max="3" step="0.05">
+          </label>
+          <label>Buchstabenabstand <span id="v-ls"></span>
+            <input type="range" id="t-ls" min="-0.1" max="0.3" step="0.01">
+          </label>
+          <label>Wortabstand <span id="v-ws"></span>
+            <input type="range" id="t-ws" min="0.2" max="1" step="0.02">
+          </label>
+          <label>Variation <span id="v-var"></span>
+            <input type="range" id="t-var" min="0" max="1" step="0.05">
+          </label>
+          <label>Stiftdicke <span id="v-pen"></span>
+            <input type="range" id="t-pen" min="0.4" max="2.5" step="0.05">
+          </label>
+          <div class="row">
+            <label class="inline">Farbe <input type="color" id="t-color"></label>
+            <label class="inline">Papier
+              <select id="t-paper">
+                <option value="blank">Blanko</option>
+                <option value="lined">Liniert</option>
+                <option value="grid">Kariert</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button id="t-shuffle">Neu würfeln</button>
+            <button id="t-generate" class="primary">Erzeugen</button>
+          </div>
+          <p id="t-warn" class="warn" hidden></p>
+          <hr>
+          <h3>Export</h3>
+          <div class="col">
+            <button id="ex-goodnotes" class="primary">GoodNotes 6 (.goodnotes)</button>
+            <button id="ex-notability" class="primary">Notability (.note)</button>
+            <button id="ex-pdf-ink">PDF mit Freihand-Strichen</button>
+            <button id="ex-pdf">PDF (flach)</button>
+          </div>
+          <p class="muted small">Die .goodnotes- und .note-Dateien enthalten echte Stiftstriche, die du in der App radieren und verschieben kannst. Beide Formate sind nachgebaut und noch nicht auf dem iPad getestet. „PDF mit Freihand-Strichen“ legt jedes Wort als PDF-Anmerkung ab, „PDF (flach)“ brennt die Schrift fest ein.</p>
+        </aside>
+        <div class="pages-wrap">
+          <div class="toolbar">
+            <button class="tool" data-tool="pen" title="Stift">Stift</button>
+            <button class="tool" data-tool="eraser" title="Radierer">Radierer</button>
+            <button class="tool" data-tool="select" title="Auswählen und verschieben">Auswählen</button>
+            <button class="tool" data-tool="hand" title="Blättern">Blättern</button>
+            <span class="sep"></span>
+            <button id="ed-undo">Rückgängig</button>
+            <button id="ed-delete">Auswahl löschen</button>
+          </div>
+          <div id="pages" class="pages"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="glyph-dialog">
+    <form method="dialog" class="dlg">
+      <h3>Varianten von <span id="gd-char"></span></h3>
+      <div id="gd-list" class="variant-list"></div>
+      <div class="row">
+        <button type="button" id="gd-add" class="primary">Neue Variante schreiben</button>
+        <button value="close">Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

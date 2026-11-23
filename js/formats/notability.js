@@ -1,0 +1,221 @@
+// Export als Notability-Notiz (.note). Aufbau siehe docs/dateiformate.md.
+import { writeBplist, Archive, Real, UID, appleTime } from './bplist.js';
+import { makeZip, uuid, uuidBytes } from './zip.js';
+import { PAGE } from '../render.js';
+import { widthFactor } from '../glyphs.js';
+
+const NB_WIDTH = 567;                         // Breite des Notability-Blatts
+const NB_PAGE_H = NB_WIDTH * 11 / 8.5;        // Seitenhöhe bei Papier "letter"
+
+const f32 = (arr) => new Uint8Array(new Float32Array(arr).buffer);
+const i32 = (arr) => new Uint8Array(new Int32Array(arr).buffer);
+
+function rgba(hex) {
+  const m = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(m.substr(i, 2), 16)).concat(255);
+}
+
+// Polylinie -> kubische Bézierkurven (Catmull-Rom), Ergebnis: 3n+1 Punkte.
+function toCubic(pts) {
+  if (pts.length === 1) pts = [pts[0], [pts[0][0] + 0.3, pts[0][1] + 0.3, pts[0][2]]];
+  const out = [pts[0]];
+  const P = (i) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    out.push(
+      [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6],
+      [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6],
+      p2,
+    );
+  }
+  return out;
+}
+
+export function buildNotability(pages, { name = 'Handschrift' } = {}) {
+  // A4-Seiten auf das Notability-Blatt skalieren, jede Seite an ihren Platz untereinander.
+  const k = Math.min(NB_WIDTH / PAGE.w, NB_PAGE_H / PAGE.h);
+  const ox = (NB_WIDTH - PAGE.w * k) / 2;
+
+  const numPts = [], points = [], widths = [], colors = [], styles = [], uuids = [];
+  const fracW = [], forces = [], altitude = [], azimuth = [];
+  pages.forEach((page, pi) => {
+    const oy = pi * NB_PAGE_H;
+    for (const s of page.strokes) {
+      const cubic = toCubic(s.pts);
+      numPts.push(cubic.length);
+      for (const [x, y] of cubic) points.push(ox + x * k, oy + y * k);
+      const knots = s.pts.length === 1 ? [s.pts[0], s.pts[0]] : s.pts;
+      for (const p of knots) {
+        fracW.push(widthFactor(p[2]));
+        forces.push(1);
+        altitude.push(Math.PI / 2);
+        azimuth.push(1, 0);
+      }
+      widths.push(s.w * k);
+      colors.push(...rgba(s.c));
+      styles.push(3);
+      uuids.push(...uuidBytes(uuid()));
+    }
+  });
+  const numCurves = numPts.length;
+  const now = appleTime();
+
+  // ---- Session.plist (Objektgraph wie in Notability 14) ----
+  const A = new Archive();
+  const rootIdx = A.reserve();
+  const richIdx = A.reserve();
+  const empty = () => A.mutableArray();
+  const attributed = (backing) => {
+    const keys = [A.str('stringKey'), A.str('subRangesKey')];
+    const strObj = backing
+      ? A.add({ $class: A.cls('NSMutableString', ['NSMutableString', 'NSString', 'NSObject']), 'NS.bytes': new Uint8Array(0) })
+      : A.str('');
+    return A.mutableDict(keys, [strObj, empty()]);
+  };
+
+  const spatial = A.add({
+    numpoints: points.length / 2,
+    options: new Uint8Array(numCurves * 8),
+    numfractionalwidths: fracW.length,
+    groupsArrays: empty(),
+    curvesaltitudeangles: f32(altitude),
+    curvespoints: f32(points),
+    curveUUIDs: new Uint8Array(uuids),
+    curvescolors: new Uint8Array(colors),
+    curvesfractionalwidths: f32(fracW),
+    curvesnumpoints: i32(numPts),
+    curvesforces: f32(forces),
+    $class: A.cls('InkedSpatialHash'),
+    curvesazimuthunitvector: f32(azimuth),
+    curveswidth: f32(widths),
+    curvesstyles: new Uint8Array(styles),
+    bezierPathsDataDictionary: A.mutableDict(),
+    numcurves: numCurves,
+  });
+  const overlay = A.add({ SpatialHash: spatial, $class: A.cls('HandwritingObject', ['HandwritingObject', 'NSObject']) });
+  const backing = A.add({
+    $class: A.cls('NBAttributedString', ['NBAttributedString', 'NSObject']),
+    NBAttributedBackingStringCodingKey: attributed(true),
+    NBAttributedLayoutStringCodingKey: attributed(true),
+  });
+  const reflow = A.add({
+    pageWidthInDocumentCoordsKey: new Real(NB_WIDTH),
+    nativeLayoutDeviceStringKey: A.str('iPad'),
+    $class: A.cls('NBReflowStateLocked', ['NBReflowStateLocked', 'NBReflowState', 'NSObject']),
+  });
+  const pdfFiles = A.array();
+  A.set(richIdx, {
+    formatVersion: 5,
+    formattedStringTextAlignmentKey: 0,
+    attributedString: attributed(false),
+    NBAttributedBackingString: backing,
+    'Handwriting Overlay': overlay,
+    $class: A.cls('FormattedString', ['FormattedString', 'NSObject']),
+    reflowState: reflow,
+    didBecomeReflowable: true,
+    pdfFiles,
+    mediaObjects: pdfFiles,
+    recordingTimestampString: attributed(true),
+    pageLayoutArray: empty(),
+  });
+  const nameUid = A.str(name);
+  const paper = A.add({
+    paperIdentifier: A.str('Legacy:13'),
+    $class: A.cls('GLModel.PaperAttributes', ['GLModel.PaperAttributes', 'NSObject']),
+    drawRotatedForOrientation: true,
+    paperOrientation: A.str('portrait'),
+    paperSize: A.str('letter'),
+    paperSizingBehavior: A.str(`lockedWidth:${NB_WIDTH}.0:iPad`),
+    alignsTextToLines: true,
+    lineStyle2: A.str('Lines:false:true:0.25'),
+  });
+  const layoutModel = A.add({
+    documentPaperAttributes: paper,
+    $class: A.cls('Notability.NoteDocumentPaperLayoutModel', ['NoteDocumentPaperLayoutModel', 'NSObject']),
+    pageLayoutArray: empty(),
+  });
+  const emptyData = new Uint8Array(0);
+  A.set(rootIdx, {
+    subject: A.str('unsortedNotesKey'),
+    NBNoteTakingSessionBundleVersionNumberKey: A.str('14.11.17'),
+    NBNoteTakingSessionHandwritingLanguageKey: A.str('de_DE'),
+    contentPlaybackEventManager: A.add({
+      NBCPTimeManagerSOAEventUUIDsKey: emptyData,
+      NBCPTimeManagerSOATimestampsKey: emptyData,
+      NBCPTimeManagerSOANumEventsKey: 0,
+      NBCPTimeManagerSOARecordingIDsKey: emptyData,
+      NBCPTimeManagerSOADurationsKey: emptyData,
+      $class: A.cls('NBCPEventManager', ['NBCPEventManager', 'NSObject']),
+    }),
+    NBPaperMinorVersionNumber: 0,
+    NBNoteTakingSessionLastUsedFontKey: new UID(0),   // $null
+    NBNoteTakingSessionMinorVersionNumberKey: 0,
+    packagePath: nameUid,
+    tags: A.str(''),
+    NBNoteTakingSessionIsHighlighterBehindTextKey: true,
+    sessionFormatVersion: 9,
+    NBNoteTakingSessionDocumentPaperLayoutModelKey: layoutModel,
+    $class: A.cls('NoteTakingSession', ['NoteTakingSession', 'NSObject']),
+    NBNoteTakingSessionAllowHighlighterConversionKey: false,
+    NBPaperMajorVersionNumber: 3,
+    richText: new UID(richIdx),
+    isReadOnly: false,
+    creationDate: A.date(now),
+    name: nameUid,
+  });
+  const session = writeBplist(A.toPlist('GLKeyedArchiver', '$0', new UID(rootIdx)));
+
+  // ---- metadata.plist ----
+  const M = new Archive();
+  const mRoot = M.reserve();
+  const created = M.date(now);
+  const changed = M.date(now);
+  const perType = M.mutableDict([2, 8, 16, 1, 4].map((n) => M.add(n)), [created, created, created, created, created]);
+  const mName = M.str(name);
+  M.set(mRoot, {
+    notePackagePath: mName,
+    noteLastChangeDatePerTypeKey: perType,
+    $class: M.cls('SessionInfo', ['SessionInfo', 'NSObject']),
+    noteCreationDateKey: created,
+    associatedProductsKey: M.array(),
+    uuidKey: M.str(uuid()),
+    noteSubject: M.str('unsortedNotesKey'),
+    noteHasRecordingKey: false,
+    noteName: mName,
+    noteTags: M.str(''),
+    noteModifiedDateKey: changed,
+  });
+  const metadata = writeBplist(M.toPlist('NSKeyedArchiver', 'root', new UID(mRoot)));
+
+  const library = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application version</key>
+	<string>6284</string>
+	<key>library-format-version</key>
+	<string>1.0</string>
+	<key>recordings</key>
+	<dict/>
+</dict>
+</plist>
+`;
+
+  return { session, metadata, library, numCurves };
+}
+
+export async function buildNotabilityFile(pages, { name, thumbnailPng }) {
+  const { session, metadata, library } = buildNotability(pages, { name });
+  const dir = 'Notability/';
+  return makeZip([
+    { name: dir + 'Assets/' },
+    { name: dir + 'Session.plist', data: session },
+    { name: dir + 'thumb12x.png', data: thumbnailPng },
+    { name: dir + 'Recordings/' },
+    { name: dir + 'Recordings/library.plist', data: library },
+    { name: dir + 'metadata.plist', data: metadata },
+    { name: dir + 'Images/' },
+    { name: dir + 'PDFs/' },
+    { name: dir },
+  ]);
+}

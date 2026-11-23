@@ -1,0 +1,12 @@
+{
+  "name": "Handschrift",
+  "short_name": "Handschrift",
+  "description": "Schreib dein Alphabet mit dem Apple Pencil und setze damit beliebige Texte in deiner Handschrift.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f4f7",
+  "theme_color": "#1f3a5f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
