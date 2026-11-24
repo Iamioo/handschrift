@@ -125,7 +125,7 @@ function orderKey(i) {
 
 /* ---------- Notizbuch ---------- */
 
-export function buildGoodnotes(pages, { title, paperPdf, paperName, lineSpacing, margin, thumbnailJpg }) {
+export function buildGoodnotes(pages, { title, paperPdf, paperName, thumbnailJpg }) {
   const device = (BigInt(rand32()) << 31n) | BigInt(rand32());
   let seq = Date.now();
   let noteSeq = 1500000;
@@ -179,19 +179,12 @@ export function buildGoodnotes(pages, { title, paperPdf, paperName, lineSpacing,
   ]);
   event(templateId, 2, [
     [1, 's', docId], [2, 's', templateId], [4, 's', attId], [5, 'v', 1], [6, 'v', 1],
-    [7, 'd', lineSpacing],
     [8, 'm', [[1, 'f', PAGE.w], [2, 'f', PAGE.h]]],
-    [9, 's', `${paperName} - White`],
+    [9, 's', paperName],
     [10, 'd', now()], [11, 's', uuid()],
-    [12, 'm', [[1, 'd', lineSpacing], [2, 'm', version()]]],
     [13, 'm', [[1, 'v', 1], [2, 'm', version()]]],
     [15, 'v', device], [16, 'v', seq++],
     [17, 'm', [[1, 'v', 1], [2, 'm', version()]]],
-    [18, 'm', [
-      // Schreibbereich als Ursprung + Größe (im Original: 44 + 746,24 = 834,24 − 44)
-      [1, 'm', [[1, 'm', [[1, 'f', margin], [2, 'f', margin]]], [2, 'm', [[1, 'f', PAGE.w - 2 * margin], [2, 'f', PAGE.h - 2 * margin]]]]],
-      [2, 'f', lineSpacing], [3, 'f', 1], [5, 'v', 1],
-    ]],
     [19, 'm', [[2, 'm', version()]]],
     [21, 'v', SCHEMA],
   ]);

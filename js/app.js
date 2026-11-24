@@ -526,8 +526,6 @@ async function exportAs(kind) {
         title,
         paperPdf,
         paperName: `Handschrift_${settings.paper}`,
-        lineSpacing: settings.size * settings.lineHeight,
-        margin: settings.margin,
         thumbnailJpg: await thumbnail('image/jpeg'),
       });
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.goodnotes`);
