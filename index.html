@@ -10,7 +10,25 @@
   <title>Handschrift</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=2026-11-24b">
+  <script>
+    // Versionsnummer bei jeder Änderung an JS- oder CSS-Dateien erhöhen (auch oben beim Stylesheet).
+    // Safari hält Dateien sonst bis zu zehn Minuten im Cache und mischt alte und neue Skripte.
+    window.HS_VERSION = '2026-11-24b';
+    (() => {
+      const files = ['app', 'store', 'pdf', 'glyphs', 'render', 'template', 'editor', 'testfont', 'scene', 'symbols', 'kiprompt', 'kiexample',
+        'formats/goodnotes', 'formats/zip', 'formats/bplist', 'formats/md5', 'formats/readers', 'formats/notability'];
+      const imports = {};
+      for (const f of files) {
+        const u = new URL('js/' + f + '.js', location.href);
+        imports[u.href] = u.href + '?v=' + window.HS_VERSION;
+      }
+      const map = document.createElement('script');
+      map.type = 'importmap';
+      map.textContent = JSON.stringify({ imports });
+      document.currentScript.after(map);
+    })();
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -260,6 +278,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module">import './js/app.js';</script>
 </body>
 </html>

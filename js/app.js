@@ -410,8 +410,9 @@ $('gd-add').addEventListener('click', () => {
 
 const PAPER_NAMES = { liniert: 'lined', kariert: 'grid', blanko: 'blank', lined: 'lined', grid: 'grid', blank: 'blank' };
 
+$('ki-prompt').textContent = KI_PROMPT;
+
 function openBoard() {
-  $('ki-prompt').textContent = KI_PROMPT;
   if (!$('ki-json').value) $('ki-json').value = settings.kiJson || '';
 }
 

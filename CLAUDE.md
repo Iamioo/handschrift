@@ -3,6 +3,9 @@
 Statische Web-App ohne Build-Schritt (ES-Module, kein npm). Lokal starten mit `python -m http.server 8765`.
 Veröffentlicht über GitHub Pages aus dem `main`-Branch.
 
+Bei jeder Änderung an JS- oder CSS-Dateien `HS_VERSION` und die Version am Stylesheet in `index.html` erhöhen.
+Neue JS-Dateien in die Liste `files` dort eintragen. Sonst lädt Safari alte Skripte aus dem Cache.
+
 Ziel ist später eine native iPadOS-16-App. Die Web-App ist der Prototyp dafür.
 
 ## Texte
