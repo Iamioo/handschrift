@@ -62,7 +62,7 @@ function umlautDots(v, upper, rnd) {
 export const DEFAULT_OPTS = {
   pageFormat: 'goodnotes',
   size: 22, lineHeight: 1.45, letterSpacing: 0, wordSpacing: 0.38, variation: 0.6,
-  penScale: 1, color: '#1b2a4a', paper: 'lined', margin: 56, seed: 1,
+  penScale: 1, color: '#1b2a4a', paper: 'lined', lineColor: 'blue', margin: 56, seed: 1,
 };
 
 export function layout(text, font, o) {
@@ -155,12 +155,21 @@ export function paperLines(paper, o) {
   return lines;
 }
 
-export const PAPER_COLOR = '#b8cde6';
+// Linienfarben fürs Papier. "blue" entspricht den Standardlinien von Notability.
+export const LINE_COLORS = {
+  blue: { hex: '#b8cde6', label: 'Blau (Notability)' },
+  gray: { hex: '#c4c4c4', label: 'Grau' },
+  black: { hex: '#000000', label: 'Schwarz' },
+};
+export const PAPER = { color: LINE_COLORS.blue.hex };
+export function setLineColor(key) {
+  PAPER.color = (LINE_COLORS[key] || LINE_COLORS.blue).hex;
+}
 
 export function drawPage(ctx, page, lines, scale) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, PAGE.w * scale, PAGE.h * scale);
-  ctx.strokeStyle = PAPER_COLOR;
+  ctx.strokeStyle = PAPER.color;
   ctx.lineWidth = Math.max(0.5 * scale, 0.5);
   ctx.beginPath();
   for (const [x1, y1, x2, y2] of lines) { ctx.moveTo(x1 * scale, y1 * scale); ctx.lineTo(x2 * scale, y2 * scale); }

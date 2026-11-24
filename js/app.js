@@ -1,6 +1,6 @@
 import { loadFonts, saveFonts, loadSettings, saveSettings, newFont, fontToFile, fontFromFile, safeFileName } from './store.js';
 import { LETTERS, EXTRA, PEN_EM, Pad, normalizeGlyph, denormalizeGlyph, drawGlyphThumb, drawSample } from './glyphs.js';
-import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat } from './render.js';
+import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat, setLineColor } from './render.js';
 import { buildPdf } from './pdf.js';
 import { buildGoodnotes } from './formats/goodnotes.js';
 import { buildNotabilityFile, notePackageName } from './formats/notability.js';
@@ -436,6 +436,8 @@ $('t-format').value = settings.pageFormat;
 $('t-format').addEventListener('change', () => { settings.pageFormat = $('t-format').value; changed(); });
 $('t-paper').value = settings.paper;
 $('t-paper').addEventListener('change', () => { settings.paper = $('t-paper').value; changed(); });
+$('t-linecolor').value = settings.lineColor;
+$('t-linecolor').addEventListener('change', () => { settings.lineColor = $('t-linecolor').value; changed(); });
 $('t-font').addEventListener('change', () => { settings.activeId = $('t-font').value; changed(); });
 $('t-shuffle').addEventListener('click', () => { settings.seed = Math.floor(Math.random() * 1e9); generate(true); });
 $('t-generate').addEventListener('click', () => generate(true));
@@ -470,6 +472,7 @@ function generate(byUser) {
   if (dirty && byUser && !confirm('Deine Änderungen auf den Seiten gehen beim Neu-Erzeugen verloren. Fortfahren?')) return;
   dirty = false;
   setPageFormat(settings.pageFormat);
+  setLineColor(settings.lineColor);
   $('t-generate').textContent = 'Erzeugen';
   const warn = $('t-warn');
   if (!f || !Object.keys(f.glyphs).length) {
