@@ -147,3 +147,10 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 }
 .pages.hand .page { touch-action: auto; }
 .empty-note { color: var(--muted); padding: 40px; text-align: center; }
+
+/* Tafelbild */
+#ki-json { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+.prompt-box { margin-top: 10px; }
+.prompt-box summary { cursor: pointer; color: var(--muted, #666); }
+.prompt-box pre { white-space: pre-wrap; font-size: 12px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+[hidden] { display: none !important; }

@@ -18,6 +18,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab" data-view="fonts">Schriften</button>
       <button class="tab" data-view="capture">Alphabet schreiben</button>
+      <button class="tab" data-view="board">Tafelbild</button>
       <button class="tab" data-view="text">Text &amp; Export</button>
     </nav>
   </header>
@@ -107,6 +108,43 @@
       </div>
     </section>
 
+    <!-- Tafelbild per KI -->
+    <section id="view-board" class="view">
+      <div class="panel">
+        <h2>Tafelbild in Handschrift</h2>
+        <p class="muted">Eine KI liest Fotos oder Screenshots von Tafel, Whiteboard oder Beamer und schreibt eine Datei. Die App setzt daraus Seiten in deiner Handschrift, mit Unterstreichungen, Markierungen, Kästen, Tabellen und Skizzen.</p>
+        <ol class="muted steps">
+          <li>Prompt kopieren und in einen neuen Chat mit einer KI einfügen (ChatGPT, Claude, Gemini).</li>
+          <li>Ein oder mehrere Bilder in denselben Chat schicken. Die KI entscheidet, ob daraus eine Seite, eine Doppelseite oder mehr wird.</li>
+          <li>Die Antwort der KI (den JSON-Block oder die Datei tafelbild.json) hier einfügen oder laden.</li>
+          <li>„Seiten erzeugen“ tippen. Danach kannst du unter „Text &amp; Export“ nachbearbeiten und exportieren.</li>
+        </ol>
+        <div class="row">
+          <button id="ki-copy" class="primary">Prompt kopieren</button>
+          <button id="ki-share">Prompt als Datei</button>
+        </div>
+        <details class="prompt-box">
+          <summary>Prompt ansehen</summary>
+          <pre id="ki-prompt"></pre>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>Antwort der KI</h2>
+        <textarea id="ki-json" rows="12" spellcheck="false" placeholder="Hier die Antwort der KI einfügen. Begleittext und ```json stören nicht."></textarea>
+        <div class="row">
+          <button id="ki-paste">Aus Zwischenablage einfügen</button>
+          <label class="button">Datei laden
+            <input id="ki-file" type="file" accept=".json,.txt,application/json,text/plain" hidden>
+          </label>
+          <button id="ki-example">Beispiel laden</button>
+        </div>
+        <div class="row">
+          <button id="ki-go" class="primary">Seiten erzeugen</button>
+        </div>
+        <p id="ki-status" class="muted small"></p>
+      </div>
+    </section>
+
     <!-- Text & Export -->
     <section id="view-text" class="view">
       <div class="text-layout">
@@ -114,14 +152,27 @@
           <label>Schrift
             <select id="t-font"></select>
           </label>
-          <label>Text
+          <label>Inhalt
+            <select id="t-source">
+              <option value="text">Eingetippter Text</option>
+              <option value="ki">Tafelbild (KI-Datei)</option>
+            </select>
+          </label>
+          <label id="t-text-wrap">Text
             <textarea id="t-text" rows="7"></textarea>
           </label>
+          <p id="t-ki-info" class="muted small" hidden></p>
           <label>Seitenformat
             <select id="t-format">
               <option value="goodnotes">GoodNotes-Standard</option>
               <option value="a4">A4</option>
               <option value="letter">US Letter</option>
+            </select>
+          </label>
+          <label>Ausrichtung
+            <select id="t-orient">
+              <option value="hoch">Hochformat</option>
+              <option value="quer">Querformat</option>
             </select>
           </label>
           <label>Schriftgröße <span id="v-size"></span>

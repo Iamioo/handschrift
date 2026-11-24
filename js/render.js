@@ -1,5 +1,6 @@
 // Setzt einen Text mit einer Handschrift auf A4-Seiten (Einheit: PDF-Punkte, y nach unten).
 import { PEN_EM, strokePath } from './glyphs.js';
+import { SYMBOLS, SCRIPT_CHARS, scriptVariant } from './symbols.js';
 
 // Seitenformate in PDF-Punkten. "goodnotes" entspricht dem Standardpapier von GoodNotes.
 export const PAGE_FORMATS = {
@@ -8,9 +9,11 @@ export const PAGE_FORMATS = {
   letter: { w: 612, h: 792, label: 'US Letter' },
 };
 export const PAGE = { w: PAGE_FORMATS.goodnotes.w, h: PAGE_FORMATS.goodnotes.h };
-export function setPageFormat(key) {
+// orientation: 'hoch' oder 'quer'. Querformat tauscht Breite und Höhe.
+export function setPageFormat(key, orientation = 'hoch') {
   const f = PAGE_FORMATS[key] || PAGE_FORMATS.goodnotes;
-  PAGE.w = f.w; PAGE.h = f.h;
+  const quer = orientation === 'quer';
+  PAGE.w = quer ? f.h : f.w; PAGE.h = quer ? f.w : f.h;
 }
 
 export function mulberry32(a) {
@@ -23,10 +26,10 @@ export function mulberry32(a) {
 }
 
 const UMLAUT_BASE = { 'ä': 'a', 'ö': 'o', 'ü': 'u', 'Ä': 'A', 'Ö': 'O', 'Ü': 'U' };
-const SUBST = { '„': '"', '“': '"', '”': '"', '»': '"', '«': '"', '‚': "'", '‘': "'", '’': "'", '–': '-', '—': '-', 'ẞ': 'SS' };
+const SUBST = { '„': '"', '“': '"', '”': '"', '»': '"', '«': '"', '‚': "'", '‘': "'", '’': "'", '–': '-', '—': '-', '−': '-', 'ẞ': 'SS', '⋅': '·', '∙': '·', '⟶': '→', '⟹': '⇒', '\u00a0': ' ' };
 
 // Ersetzt Zeichen, die in der Schrift fehlen, durch naheliegende Alternativen.
-function prepareText(text, font) {
+export function prepareText(text, font) {
   const has = (c) => font.glyphs[c]?.length;
   let out = '';
   for (const ch of text.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')) {
@@ -38,13 +41,29 @@ function prepareText(text, font) {
   return out;
 }
 
-function lookup(font, ch) {
+const scriptCache = new WeakMap();
+
+// Sucht die Varianten eines Zeichens. Fehlt es, greifen Umlaut-Punkte, Groß/Klein, hoch- oder
+// tiefgestellte Ziffern und zuletzt die eingebauten Symbole aus symbols.js.
+export function lookup(font, ch) {
   const g = font.glyphs;
   if (g[ch]?.length) return { variants: g[ch] };
   const base = UMLAUT_BASE[ch];
   if (base && g[base]?.length) return { variants: g[base], dots: true, upper: ch !== ch.toLowerCase() };
+  const sc = SCRIPT_CHARS[ch];
+  if (sc) {
+    const src = lookup(font, sc[0]);
+    if (src && !src.dots) {
+      let m = scriptCache.get(font);
+      if (!m) { m = {}; scriptCache.set(font, m); }
+      const key = ch + src.variants.length;
+      m[key] ||= src.variants.map((v) => scriptVariant(v, sc[1]));
+      return { variants: m[key] };
+    }
+  }
   const alt = ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase();
   if (alt !== ch && alt.length === 1 && g[alt]?.length) return { variants: g[alt] };
+  if (SYMBOLS[ch]) return { variants: [SYMBOLS[ch]] };
   return null;
 }
 
@@ -65,30 +84,14 @@ export const DEFAULT_OPTS = {
   penScale: 1, color: '#1b2a4a', paper: 'lined', lineColor: 'blue', lineWidth: 0.5, gridSize: 5, margin: 56, seed: 1,
 };
 
-export function layout(text, font, o) {
-  const rnd = mulberry32(o.seed);
+// Liefert eine Funktion, die für ein Zeichen eine Variante wählt und leicht verzieht.
+// adv ist der Vorschub in em (mal Schriftgröße = Punkte).
+export function makeGlyphMaker(font, o, rnd, missing) {
   const v = o.variation;
-  const size = o.size;
-  const lh = size * o.lineHeight;
-  const left = o.margin, right = PAGE.w - o.margin, top = o.margin, bottom = PAGE.h - o.margin;
-  // Schriften aus einer beschriebenen Vorlage bringen ihre eigene Strichdicke mit (font.penEm).
-  const penW = (font.penEm || PEN_EM) * o.penScale * size;
-  const pages = [];
-  const missing = new Set();
   const lastVar = {};
-  let page, y, x = left, slope = 0, gid = 0;
-
-  const newSlope = () => { slope = (rnd() - 0.5) * 2 * 0.01 * v; };
-  const newPage = () => { page = { strokes: [] }; pages.push(page); y = top + size; };
-  const newLine = () => {
-    x = left; y += lh; newSlope();
-    if (y > bottom) newPage();
-  };
-  newPage(); newSlope();
-
-  const makeGlyph = (ch) => {
+  return (ch) => {
     const L = lookup(font, ch);
-    if (!L) { missing.add(ch); return { strokes: [], adv: 0.45 * size, sc: 1, rot: 0, dy: 0 }; }
+    if (!L) { missing.add(ch); return { strokes: [], adv: 0.45, sc: 1, rot: 0, dy: 0 }; }
     const vars = L.variants;
     let idx = 0;
     if (vars.length > 1) {
@@ -102,21 +105,51 @@ export function layout(text, font, o) {
     const dy = (rnd() - 0.5) * 2 * 0.03 * v;
     const extra = (rnd() - 0.5) * 2 * 0.03 * v;
     const strokes = L.dots ? vr.strokes.concat(umlautDots(vr, L.upper, rnd)) : vr.strokes;
-    return { strokes, sc, rot, dy, adv: (vr.w * sc + o.letterSpacing + extra) * size };
+    return { strokes, sc, rot, dy, adv: vr.w * sc + o.letterSpacing + extra };
+  };
+}
+
+// Punkte eines Zeichens auf der Seite. x: linker Rand, y: Grundlinie, slope: Neigung der Zeile ab slopeX.
+export function glyphPoints(gl, x, y, size, slope = 0, slopeX = x) {
+  const cos = Math.cos(gl.rot), sin = Math.sin(gl.rot);
+  return gl.strokes.map((s) => s.map(([px, py, p]) => {
+    const ex = (px * cos - py * sin) * gl.sc;
+    const ey = (px * sin + py * cos) * gl.sc;
+    const X = x + ex * size;
+    const Y = y + (gl.dy + ey) * size + (X - slopeX) * slope;
+    return [Math.round(X * 100) / 100, Math.round(Y * 100) / 100, p];
+  }));
+}
+
+export function layout(text, font, o) {
+  const rnd = mulberry32(o.seed);
+  const v = o.variation;
+  const size = o.size;
+  const lh = size * o.lineHeight;
+  const left = o.margin, right = PAGE.w - o.margin, top = o.margin, bottom = PAGE.h - o.margin;
+  // Schriften aus einer beschriebenen Vorlage bringen ihre eigene Strichdicke mit (font.penEm).
+  const penW = (font.penEm || PEN_EM) * o.penScale * size;
+  const pages = [];
+  const missing = new Set();
+  const glyph = makeGlyphMaker(font, o, rnd, missing);
+  let page, y, x = left, slope = 0, gid = 0;
+
+  const newSlope = () => { slope = (rnd() - 0.5) * 2 * 0.01 * v; };
+  const newPage = () => { page = { strokes: [] }; pages.push(page); y = top + size; };
+  const newLine = () => {
+    x = left; y += lh; newSlope();
+    if (y > bottom) newPage();
+  };
+  newPage(); newSlope();
+
+  const makeGlyph = (ch) => {
+    const gl = glyph(ch);
+    gl.adv *= size;
+    return gl;
   };
 
   const place = (gl, g) => {
-    const cos = Math.cos(gl.rot), sin = Math.sin(gl.rot);
-    for (const s of gl.strokes) {
-      const pts = s.map(([px, py, p]) => {
-        const ex = (px * cos - py * sin) * gl.sc;
-        const ey = (px * sin + py * cos) * gl.sc;
-        const X = x + ex * size;
-        const Y = y + (gl.dy + ey) * size + (X - left) * slope;
-        return [Math.round(X * 100) / 100, Math.round(Y * 100) / 100, p];
-      });
-      page.strokes.push({ pts, w: penW, c: o.color, g });
-    }
+    for (const pts of glyphPoints(gl, x, y, size, slope, left)) page.strokes.push({ pts, w: penW, c: o.color, g });
   };
 
   const spaceW = () => o.wordSpacing * size * (1 + (rnd() - 0.5) * 0.3 * v);

@@ -7,6 +7,9 @@ import { buildNotabilityFile, notePackageName } from './formats/notability.js';
 import { canvasBlob } from './formats/zip.js';
 import { makeTestFont } from './testfont.js';
 import { buildTemplatePdf, importFilledTemplate } from './template.js';
+import { layoutScene, parseSceneText, sceneInfo } from './scene.js';
+import { KI_PROMPT } from './kiprompt.js';
+import { KI_EXAMPLE } from './kiexample.js';
 
 const DEFAULT_CHARS = LETTERS.concat(EXTRA).join('');
 import { Editor } from './editor.js';
@@ -24,6 +27,9 @@ const settings = loadSettings({
   auto: false,
   text: DEFAULT_TEXT,
   view: 'capture',
+  source: 'text',
+  kiJson: '',
+  orientation: 'hoch',
 });
 
 if (!fonts.length) {
@@ -54,6 +60,7 @@ function show(view) {
   if (view === 'fonts') renderFontList();
   if (view === 'capture') startCapture();
   if (view === 'text') openText();
+  if (view === 'board') openBoard();
 }
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.view)));
 
@@ -399,6 +406,73 @@ $('gd-add').addEventListener('click', () => {
   $('pad').scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
+/* ---------- Tafelbild per KI ---------- */
+
+const PAPER_NAMES = { liniert: 'lined', kariert: 'grid', blanko: 'blank', lined: 'lined', grid: 'grid', blank: 'blank' };
+
+function openBoard() {
+  $('ki-prompt').textContent = KI_PROMPT;
+  if (!$('ki-json').value) $('ki-json').value = settings.kiJson || '';
+}
+
+$('ki-json').addEventListener('input', () => { $('ki-status').textContent = ''; });
+
+$('ki-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(KI_PROMPT);
+    $('ki-status').textContent = 'Prompt kopiert. Füge ihn in einen neuen KI-Chat ein und schick danach die Bilder.';
+  } catch {
+    $('ki-prompt').closest('details').open = true;
+    const r = document.createRange();
+    r.selectNodeContents($('ki-prompt'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+    $('ki-status').textContent = 'Kopieren ging nicht automatisch. Der Prompt ist markiert, kopiere ihn von Hand.';
+  }
+});
+
+$('ki-share').addEventListener('click', () => deliver(new Blob([KI_PROMPT], { type: 'text/plain' }), 'Handschrift-KI-Prompt.txt'));
+
+$('ki-paste').addEventListener('click', async () => {
+  try {
+    $('ki-json').value = await navigator.clipboard.readText();
+    $('ki-status').textContent = '';
+  } catch {
+    $('ki-status').textContent = 'Kein Zugriff auf die Zwischenablage. Füge den Text mit langem Tippen ins Feld ein.';
+  }
+});
+
+$('ki-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) $('ki-json').value = await file.text();
+});
+
+$('ki-example').addEventListener('click', () => {
+  $('ki-json').value = JSON.stringify(KI_EXAMPLE, null, 2);
+  $('ki-status').textContent = 'Beispiel geladen. Tippe auf „Seiten erzeugen“.';
+});
+
+$('ki-go').addEventListener('click', () => {
+  let doc;
+  try {
+    doc = parseSceneText($('ki-json').value);
+  } catch (err) {
+    $('ki-status').textContent = 'Das klappt so nicht: ' + err.message + ' Kopiere die ganze Antwort der KI oder bitte sie, nur gültiges JSON zu schicken.';
+    return;
+  }
+  if (dirty && !confirm('Deine Änderungen auf den Seiten gehen verloren. Fortfahren?')) return;
+  settings.kiJson = $('ki-json').value;
+  settings.source = 'ki';
+  if (doc.ausrichtung === 'quer' || doc.ausrichtung === 'hoch') settings.orientation = doc.ausrichtung;
+  if (PAPER_NAMES[doc.papier]) settings.paper = PAPER_NAMES[doc.papier];
+  dirty = false;
+  saveSettings(settings);
+  syncTextControls();
+  const { pages } = sceneInfo(doc);
+  $('ki-status').textContent = `${pages} ${pages === 1 ? 'Seite' : 'Seiten'} aus der KI-Datei.`;
+  show('text');
+});
+
 /* ---------- Text & Export ---------- */
 
 let dirty = false;      // true, sobald jemand im Ergebnis radiert oder schreibt
@@ -430,6 +504,26 @@ for (const [id, key, fmt] of controls) {
     changed();
   });
 }
+function syncTextControls() {
+  const ki = settings.source === 'ki';
+  $('t-source').value = settings.source;
+  $('t-text-wrap').hidden = ki;
+  $('t-ki-info').hidden = !ki;
+  $('t-orient').value = settings.orientation;
+  $('t-paper').value = settings.paper;
+}
+$('t-source').addEventListener('change', () => {
+  settings.source = $('t-source').value;
+  if (settings.source === 'ki' && !settings.kiJson) {
+    settings.source = 'text';
+    alert('Es gibt noch keine KI-Datei. Füge sie zuerst unter „Tafelbild“ ein.');
+    show('board');
+    return;
+  }
+  syncTextControls();
+  changed();
+});
+$('t-orient').addEventListener('change', () => { settings.orientation = $('t-orient').value; changed(); });
 $('t-text').value = settings.text;
 $('t-text').addEventListener('input', () => { settings.text = $('t-text').value; changed(); });
 $('t-color').value = settings.color;
@@ -465,6 +559,7 @@ function openText() {
     sel.appendChild(o);
   }
   sel.value = settings.activeId;
+  syncTextControls();
   if (!current || !dirty) generate(false);
   else editor.resizeAll();
 }
@@ -473,7 +568,7 @@ function generate(byUser) {
   const f = activeFont();
   if (dirty && byUser && !confirm('Deine Änderungen auf den Seiten gehen beim Neu-Erzeugen verloren. Fortfahren?')) return;
   dirty = false;
-  setPageFormat(settings.pageFormat);
+  setPageFormat(settings.pageFormat, settings.orientation);
   setPaperStyle(settings.lineColor, settings.lineWidth);
   $('t-generate').textContent = 'Erzeugen';
   const warn = $('t-warn');
@@ -484,9 +579,27 @@ function generate(byUser) {
     warn.textContent = 'Diese Schrift hat noch keine Buchstaben. Schreib zuerst das Alphabet.';
     return;
   }
-  const { pages, missing } = layout(settings.text, f, settings);
+  let result;
+  current = null;
+  if (settings.source === 'ki') {
+    try {
+      const doc = parseSceneText(settings.kiJson);
+      result = layoutScene(doc, f, settings);
+      $('t-ki-info').textContent = `„${doc.titel || 'Tafelbild'}“: ${result.pages.length} ${result.pages.length === 1 ? 'Seite' : 'Seiten'}. Ändern kannst du die Datei unter „Tafelbild“.`;
+      result.title = doc.titel;
+    } catch (err) {
+      console.error(err);
+      editor.setDoc([], []);
+      warn.hidden = false;
+      warn.textContent = 'KI-Datei fehlerhaft: ' + (err.message || err);
+      return;
+    }
+  } else {
+    result = layout(settings.text, f, settings);
+  }
+  const { pages, missing } = result;
   const lines = paperLines(settings.paper, settings);
-  current = { pages, lines };
+  current = { pages, lines, title: result.title };
   editor.setDoc(pages, lines);
   warn.hidden = !missing.length;
   warn.textContent = missing.length ? `Fehlende Zeichen (bleiben leer): ${missing.join(' ')}` : '';
@@ -501,6 +614,7 @@ $('ed-undo').addEventListener('click', () => editor.undo());
 $('ed-delete').addEventListener('click', () => editor.deleteSelection());
 
 function exportTitle() {
+  if (settings.source === 'ki' && current?.title) return String(current.title).trim().slice(0, 40);
   return (settings.text.split('\n').find((l) => l.trim()) || 'Handschrift').trim().slice(0, 40);
 }
 
@@ -552,4 +666,4 @@ $('ex-pdf').addEventListener('click', () => exportAs('flat'));
 
 /* ---------- Start ---------- */
 
-show(['fonts', 'capture', 'text'].includes(settings.view) ? settings.view : 'capture');
+show(['fonts', 'capture', 'board', 'text'].includes(settings.view) ? settings.view : 'capture');
