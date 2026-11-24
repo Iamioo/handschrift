@@ -10,13 +10,13 @@
   <title>Handschrift</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=2026-11-24c">
+  <link rel="stylesheet" href="css/style.css?v=2026-11-24d">
   <script>
     // Versionsnummer bei jeder Änderung an JS- oder CSS-Dateien erhöhen (auch oben beim Stylesheet).
     // Safari hält Dateien sonst bis zu zehn Minuten im Cache und mischt alte und neue Skripte.
-    window.HS_VERSION = '2026-11-24c';
+    window.HS_VERSION = '2026-11-24d';
     (() => {
-      const files = ['app', 'store', 'pdf', 'glyphs', 'render', 'template', 'editor', 'testfont', 'scene', 'symbols', 'kiprompt', 'kiexample', 'formula',
+      const files = ['app', 'store', 'pdf', 'glyphs', 'render', 'template', 'editor', 'testfont', 'scene', 'symbols', 'kiprompt', 'kiexample', 'formula', 'charsets',
         'formats/goodnotes', 'formats/zip', 'formats/bplist', 'formats/md5', 'formats/readers', 'formats/notability'];
       const imports = {};
       for (const f of files) {
@@ -71,6 +71,8 @@
           <textarea id="tpl-chars" rows="3" spellcheck="false"></textarea>
         </label>
         <p class="muted small">Zeichen hinzufügen oder löschen, Leerzeichen und Zeilenumbrüche werden ignoriert.</p>
+        <p class="muted small">Zusätzliche Zeichen zum Anhaken:</p>
+        <div id="tpl-packs" class="packs"></div>
         <div class="row">
           <button id="tpl-reset">Standardzeichen</button>
           <label class="inline">Durchgänge
@@ -82,12 +84,16 @@
           </label>
         </div>
         <div class="row">
-          <button id="tpl-download" class="primary">Vorlage-PDF herunterladen</button>
-        </div>
-        <div class="row">
-          <label class="inline">Importieren in
+          <label class="inline">Schrift
             <select id="tpl-target"></select>
           </label>
+        </div>
+        <div class="row small">
+          <label><input type="checkbox" id="tpl-missing"> Nur Zeichen, die dieser Schrift noch fehlen</label>
+        </div>
+        <p class="muted small">So erweiterst du eine fertige Schrift: Pakete anhaken, „Nur fehlende Zeichen“ wählen, Vorlage herunterladen, beschreiben und hier in dieselbe Schrift importieren. Jede beschriebene Vorlage lässt sich in jede Schrift importieren.</p>
+        <div class="row">
+          <button id="tpl-download" class="primary">Vorlage-PDF herunterladen</button>
           <label class="button primary">Beschriebene Vorlage importieren
             <input id="tpl-import" type="file" accept=".goodnotes,.note,.zip,application/zip,application/octet-stream" hidden>
           </label>

@@ -13,6 +13,7 @@ import { KI_EXAMPLE } from './kiexample.js';
 
 const DEFAULT_CHARS = LETTERS.concat(EXTRA).join('');
 import { Editor } from './editor.js';
+import { PACKS, packChars } from './charsets.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +31,8 @@ const settings = loadSettings({
   source: 'text',
   kiJson: '',
   orientation: 'hoch',
+  packs: [],
+  tplMissing: false,
 });
 
 if (!fonts.length) {
@@ -42,10 +45,12 @@ if (!fonts.find((f) => f.id === settings.activeId)) settings.activeId = fonts[0]
 
 // Zeichenliste aus den Einstellungen, ohne Leerraum und doppelte Zeichen.
 const charsFrom = (s) => [...new Set([...(s || '')].filter((c) => c.trim()))];
-const charset = () => {
+const baseChars = () => {
   const c = charsFrom(settings.chars);
   return c.length ? c : charsFrom(DEFAULT_CHARS);
 };
+// Grundzeichen plus angehakte Pakete (Mathe, Griechisch, …), ohne doppelte Zeichen.
+const charset = () => [...new Set(baseChars().concat(packChars(settings.packs || [])))];
 
 const activeFont = () => fonts.find((f) => f.id === settings.activeId) || null;
 const persist = () => { saveFonts(fonts); saveSettings(settings); };
@@ -154,20 +159,53 @@ $('btn-test-font').addEventListener('click', () => {
 
 /* ---------- Vorlage zum Nachschreiben ---------- */
 
-$('tpl-chars').value = charset().join(' ');
+$('tpl-chars').value = baseChars().join(' ');
 $('tpl-chars').addEventListener('input', () => { settings.chars = $('tpl-chars').value; saveSettings(settings); });
 $('tpl-reset').addEventListener('click', () => {
   settings.chars = DEFAULT_CHARS;
-  $('tpl-chars').value = charset().join(' ');
+  $('tpl-chars').value = baseChars().join(' ');
   saveSettings(settings);
 });
 $('tpl-copies').value = String(settings.tplCopies);
 $('tpl-copies').addEventListener('change', () => { settings.tplCopies = Number($('tpl-copies').value); saveSettings(settings); });
 
+function renderPacks() {
+  const box = $('tpl-packs');
+  box.innerHTML = '';
+  for (const p of PACKS) {
+    const on = settings.packs.includes(p.id);
+    const l = document.createElement('label');
+    l.className = 'pack' + (on ? ' on' : '');
+    l.innerHTML = '<span><input type="checkbox"><b></b></span><span class="chars"></span>';
+    l.querySelector('input').checked = on;
+    l.querySelector('b').textContent = p.label;
+    l.querySelector('.chars').textContent = [...p.chars].join(' ');
+    l.querySelector('input').addEventListener('change', (e) => {
+      settings.packs = e.target.checked ? [...new Set([...settings.packs, p.id])] : settings.packs.filter((x) => x !== p.id);
+      saveSettings(settings);
+      renderPacks();
+    });
+    box.appendChild(l);
+  }
+}
+renderPacks();
+$('tpl-missing').checked = settings.tplMissing;
+$('tpl-missing').addEventListener('change', () => { settings.tplMissing = $('tpl-missing').checked; saveSettings(settings); });
+
 $('tpl-download').addEventListener('click', async () => {
-  const { bytes, layout: L } = buildTemplatePdf(charset(), settings.tplCopies);
-  $('tpl-status').textContent = `Vorlage mit ${charset().length} Zeichen, ${settings.tplCopies} Durchgang/Durchgänge, ${L.pages} Seiten.`;
-  await deliver(new Blob([bytes], { type: 'application/pdf' }), 'Handschrift-Vorlage.pdf');
+  let chars = charset();
+  const f = fonts.find((x) => x.id === $('tpl-target').value);
+  if (settings.tplMissing && f) {
+    chars = chars.filter((c) => !f.glyphs[c]?.length);
+    if (!chars.length) {
+      $('tpl-status').textContent = `„${f.name}“ hat schon alle ausgewählten Zeichen. Hak weitere Pakete an oder schalte „Nur fehlende Zeichen“ aus.`;
+      return;
+    }
+  }
+  const { bytes, layout: L } = buildTemplatePdf(chars, settings.tplCopies);
+  $('tpl-status').textContent = `Vorlage mit ${chars.length} Zeichen, ${settings.tplCopies} Durchgang/Durchgänge, ${L.pages} Seiten.`;
+  const name = settings.tplMissing && f ? `Handschrift-Vorlage-${safeFileName(f.name)}-Ergänzung.pdf` : 'Handschrift-Vorlage.pdf';
+  await deliver(new Blob([bytes], { type: 'application/pdf' }), name);
 });
 
 function renderTemplateTarget() {

@@ -154,3 +154,9 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .prompt-box summary { cursor: pointer; color: var(--muted, #666); }
 .prompt-box pre { white-space: pre-wrap; font-size: 12px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 [hidden] { display: none !important; }
+
+.packs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.pack { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); cursor: pointer; min-width: 120px; }
+.pack.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pack input { margin-right: 6px; }
+.pack .chars { font-size: 15px; letter-spacing: 2px; color: var(--muted); word-break: break-all; max-width: 260px; }

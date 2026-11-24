@@ -3,6 +3,7 @@
 import { buildPdf, n, pdfText } from './pdf.js';
 import { PAGE_FORMATS } from './render.js';
 import { normalizeGlyph } from './glyphs.js';
+import { SYMBOLS } from './symbols.js';
 import { readZip, readBplist, keyedArchive, readPb, pbGet, pbStr, readDelimited, appleLz4Decode, readStrokeTpl } from './formats/readers.js';
 
 const MARK = 'HANDSCHRIFT-VORLAGE:';
@@ -57,6 +58,14 @@ export function buildTemplatePdf(chars, copies) {
       `q 0.88 G 0.4 w [1 2] 0 d ${n(x1)} ${y(c.base + 0.3 * EM)} m ${n(x2)} ${y(c.base + 0.3 * EM)} l S Q\n`;
     const t = pdfText(c.ch);
     if (t) pg.ops += `BT /F1 ${EM} Tf 0.82 g ${n(c.x + 0.25 * EM)} ${y(c.base)} Td (${t}) Tj ET\n`;
+    else if (SYMBOLS[c.ch]) {
+      // Zeichen außerhalb von Latin-1 (griechisch, Pfeile, Mathe) kennt Helvetica hier nicht: als graue Striche vorzeichnen.
+      pg.ops += `q 0.82 G ${n(EM * 0.06)} w 1 J 1 j\n`;
+      for (const st of SYMBOLS[c.ch].strokes) {
+        pg.ops += st.map(([px, py], i) => `${n(c.x + 0.25 * EM + px * EM)} ${y(c.base + py * EM)} ${i ? 'l' : 'm'}`).join(' ') + ' S\n';
+      }
+      pg.ops += 'Q\n';
+    }
   }
   const json = JSON.stringify({ v: L.v, page: L.page, em: L.em, cells: L.cells.map((c) => [c.page, c.pass, c.ch, +c.x.toFixed(2), +c.base.toFixed(2), +c.w.toFixed(2)]) });
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
