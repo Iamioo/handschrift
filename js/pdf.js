@@ -39,7 +39,7 @@ function strokeOps(s, H) {
 function paperOps(lines, H) {
   if (!lines.length) return '';
   const [r, g, b] = rgb(PAPER.color);
-  let out = `q ${n(r)} ${n(g)} ${n(b)} RG 0.5 w\n`;
+  let out = `q ${n(r)} ${n(g)} ${n(b)} RG ${n(PAPER.width)} w\n`;
   for (const [x1, y1, x2, y2] of lines) out += `${n(x1)} ${n(H - y1)} m ${n(x2)} ${n(H - y2)} l S\n`;
   return out + 'Q\n';
 }

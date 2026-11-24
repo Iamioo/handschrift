@@ -62,7 +62,7 @@ function umlautDots(v, upper, rnd) {
 export const DEFAULT_OPTS = {
   pageFormat: 'goodnotes',
   size: 22, lineHeight: 1.45, letterSpacing: 0, wordSpacing: 0.38, variation: 0.6,
-  penScale: 1, color: '#1b2a4a', paper: 'lined', lineColor: 'blue', margin: 56, seed: 1,
+  penScale: 1, color: '#1b2a4a', paper: 'lined', lineColor: 'blue', lineWidth: 0.5, gridSize: 5, margin: 56, seed: 1,
 };
 
 export function layout(text, font, o) {
@@ -141,6 +141,8 @@ export function layout(text, font, o) {
   return { pages, missing: [...missing] };
 }
 
+const MM = 72 / 25.4;
+
 // Linien für liniertes oder kariertes Papier, als [x1, y1, x2, y2] in Punkten.
 export function paperLines(paper, o) {
   const lines = [];
@@ -148,7 +150,7 @@ export function paperLines(paper, o) {
     const lh = o.size * o.lineHeight;
     for (let y = o.margin + o.size; y <= PAGE.h - o.margin + 0.1; y += lh) lines.push([0, y, PAGE.w, y]);
   } else if (paper === 'grid') {
-    const step = 14.173; // 5 mm
+    const step = (o.gridSize || 5) * MM;
     for (let y = step; y < PAGE.h; y += step) lines.push([0, y, PAGE.w, y]);
     for (let x = step; x < PAGE.w; x += step) lines.push([x, 0, x, PAGE.h]);
   }
@@ -156,21 +158,23 @@ export function paperLines(paper, o) {
 }
 
 // Linienfarben fürs Papier. "blue" entspricht den Standardlinien von Notability.
+// Farben aus echten Notability- und GoodNotes-Exporten abgelesen.
 export const LINE_COLORS = {
-  blue: { hex: '#b8cde6', label: 'Blau (Notability)' },
-  gray: { hex: '#c4c4c4', label: 'Grau' },
+  blue: { hex: '#a3b7d3', label: 'Blau (Notability)' },
+  gray: { hex: '#d0d2d3', label: 'Grau (GoodNotes)' },
   black: { hex: '#000000', label: 'Schwarz' },
 };
-export const PAPER = { color: LINE_COLORS.blue.hex };
-export function setLineColor(key) {
+export const PAPER = { color: LINE_COLORS.blue.hex, width: 0.5 };
+export function setPaperStyle(key, width) {
   PAPER.color = (LINE_COLORS[key] || LINE_COLORS.blue).hex;
+  PAPER.width = width > 0 ? width : 0.5;
 }
 
 export function drawPage(ctx, page, lines, scale) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, PAGE.w * scale, PAGE.h * scale);
   ctx.strokeStyle = PAPER.color;
-  ctx.lineWidth = Math.max(0.5 * scale, 0.5);
+  ctx.lineWidth = Math.max(PAPER.width * scale, 0.5);
   ctx.beginPath();
   for (const [x1, y1, x2, y2] of lines) { ctx.moveTo(x1 * scale, y1 * scale); ctx.lineTo(x2 * scale, y2 * scale); }
   ctx.stroke();

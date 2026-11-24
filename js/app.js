@@ -1,6 +1,6 @@
 import { loadFonts, saveFonts, loadSettings, saveSettings, newFont, fontToFile, fontFromFile, safeFileName } from './store.js';
 import { LETTERS, EXTRA, PEN_EM, Pad, normalizeGlyph, denormalizeGlyph, drawGlyphThumb, drawSample } from './glyphs.js';
-import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat, setLineColor } from './render.js';
+import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat, setPaperStyle } from './render.js';
 import { buildPdf } from './pdf.js';
 import { buildGoodnotes } from './formats/goodnotes.js';
 import { buildNotabilityFile, notePackageName } from './formats/notability.js';
@@ -415,8 +415,10 @@ const controls = [
   ['t-ws', 'wordSpacing', (v) => Number(v).toFixed(2)],
   ['t-var', 'variation', (v) => `${Math.round(v * 100)} %`],
   ['t-pen', 'penScale', (v) => `${Math.round(v * 100)} %`],
+  ['t-linew', 'lineWidth', (v) => `${Number(v).toFixed(2)} pt`],
+  ['t-grid', 'gridSize', (v) => `${Number(v).toFixed(1)} mm`],
 ];
-const labelIds = { size: 'v-size', lineHeight: 'v-lh', letterSpacing: 'v-ls', wordSpacing: 'v-ws', variation: 'v-var', penScale: 'v-pen' };
+const labelIds = { size: 'v-size', lineHeight: 'v-lh', letterSpacing: 'v-ls', wordSpacing: 'v-ws', variation: 'v-var', penScale: 'v-pen', lineWidth: 'v-linew', gridSize: 'v-grid' };
 
 for (const [id, key, fmt] of controls) {
   const el = $(id);
@@ -472,7 +474,7 @@ function generate(byUser) {
   if (dirty && byUser && !confirm('Deine Änderungen auf den Seiten gehen beim Neu-Erzeugen verloren. Fortfahren?')) return;
   dirty = false;
   setPageFormat(settings.pageFormat);
-  setLineColor(settings.lineColor);
+  setPaperStyle(settings.lineColor, settings.lineWidth);
   $('t-generate').textContent = 'Erzeugen';
   const warn = $('t-warn');
   if (!f || !Object.keys(f.glyphs).length) {
