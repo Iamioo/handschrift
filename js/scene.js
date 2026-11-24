@@ -7,6 +7,7 @@
 // y relativ zur ersten Grundlinie des Blocks. So landet jeder Text auf einer Papierlinie.
 import { PAGE, mulberry32, makeGlyphMaker, glyphPoints, prepareText, lookup } from './render.js';
 import { PEN_EM, GLYPH_GAP } from './glyphs.js';
+import { compileFormula } from './formula.js';
 
 export const INK = {
   rot: '#c62828', blau: '#1f4fbf', gruen: '#2e7d32', grün: '#2e7d32', orange: '#e65100', gelb: '#c79100',
@@ -167,7 +168,7 @@ function dashes(pts, on, off) {
 function hatch(ctx, y1, y2, widthAt, color, g) {
   const hw = Math.min(ctx.size * 0.8, Math.max(4, (y2 - y1) * 0.9));
   const out = [];
-  const rows = Math.max(1, Math.round((y2 - y1 - hw * 0.4) / (hw * 0.8)));
+  const rows = Math.max(1, Math.ceil((y2 - y1 - hw) / (hw * 0.75)) + 1);
   const step = (y2 - y1 - hw * 0.9) / Math.max(1, rows - 1 || 1);
   for (let i = 0; i < rows; i++) {
     const y = rows === 1 ? (y1 + y2) / 2 : y1 + hw * 0.45 + step * i;
@@ -201,7 +202,8 @@ const marker = (name) => {
 // __unterstrichen__  ==markiert==  ~~durchgestrichen~~  [[eingerahmt]]  {{eingekreist}}
 // <rot>farbig</rot>  <markiert:gruen>andere Markerfarbe</markiert>
 function parseInline(ctx, raw, color, hc) {
-  const str = prepareText(String(raw ?? ''), ctx.font);
+  // Platzhalter für Unleserliches lässt die App weg, statt Fragezeichen zu schreiben.
+  const str = prepareText(String(raw ?? '').replace(/\s?\[(?:\?|\.\.\.|…|unleserlich)\]/gi, ''), ctx.font);
   const out = [];
   const m = { u: 0, h: 0, s: 0, k: 0, o: 0 };
   const cs = [color], hs = [hc];
@@ -607,14 +609,13 @@ function buildDrawing(ctx, el, x0, x1) {
       let src = f.punkte || (f.von && f.nach ? [f.von, f.nach] : null);
       if (!Array.isArray(src) || src.length < 2) continue;
       src = src.map(P);
+      const bend = Number(f.bogen) || 0;
+      if (bend && src.length === 2 && !['polygon', 'vieleck', 'dreieck'].includes(type)) src = bendPath(src[0], src[1], bend);
       const closed = f.geschlossen || ['polygon', 'vieleck', 'dreieck'].includes(type);
       if (closed) src.push(src[0]);
-      const path = type === 'kurve' || f.glatt ? smooth(src) : src;
-      if (fill && closed) {
-        const ys = src.map((p) => p[1]);
-        out.u.push(...hatch(ctx, Math.min(...ys), Math.max(...ys), (y) => polySpan(src, y), fill, g));
-      }
-      const pts = type === 'kurve' || f.glatt ? wobbly(ctx, path, { amp: 0.4 }) : wobbly(ctx, path);
+      const path = type === 'kurve' || f.glatt || bend ? smooth(src) : src;
+      if (fill && closed) out.u.push(...fillPoly(ctx, src, fill, g));
+      const pts = type === 'kurve' || f.glatt || bend ? wobbly(ctx, path, { amp: 0.4 }) : wobbly(ctx, path);
       add(pts);
       if (!closed) arrows(path, type === 'pfeil' ? 'ende' : 'keiner');
       if (f.text) {
@@ -654,6 +655,8 @@ function buildDrawing(ctx, el, x0, x1) {
       const rr = Math.max(1.2, ctx.penW * 1.2 * (Number(f.dicke) || 1));
       out.s.push({ pts: ellipsePts(ctx, cx, cy, rr * 0.5, rr * 0.5), w: rr, c, g });
       if (f.text) drawLabel(ctx, out, { ...f, ausrichtung: f.ausrichtung || 'links' }, cx + ctx.size * 0.4, cy - ctx.size * 0.5, c, k);
+    } else if (EXTRA_SHAPES[type]) {
+      EXTRA_SHAPES[type]({ ctx, f, P, k, c, w, g, out, add, fill, label, arrows, hoehe });
     } else if (type === 'text' || type === 'beschriftung') {
       const [cx, cy] = P([f.x, f.y]);
       drawLabel(ctx, out, f, cx, cy, c, k);
@@ -675,6 +678,341 @@ function pointAlong(path, f) {
     want -= d;
   }
   return path[path.length - 1];
+}
+
+function bendPath(a, b, bend) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+  const m = [(a[0] + b[0]) / 2 - (dy / len) * bend * len, (a[1] + b[1]) / 2 + (dx / len) * bend * len];
+  const out = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12, u = 1 - t;
+    out.push([u * u * a[0] + 2 * u * t * m[0] + t * t * b[0], u * u * a[1] + 2 * u * t * m[1] + t * t * b[1]]);
+  }
+  return out;
+}
+
+const num = (v, d) => (v === undefined || v === null || v === '' || !isFinite(Number(String(v).replace(',', '.'))) ? d : Number(String(v).replace(',', '.')));
+const fmt = (v) => String(Math.round(v * 1000) / 1000).replace('.', ',').replace('-', '−');
+
+// Schrittweite, bei der höchstens etwa max Teilstriche entstehen.
+function niceStep(range, max = 10) {
+  const raw = range / max;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= raw) return m * p;
+  return 10 * p;
+}
+
+function ticks(min, max, step) {
+  const out = [];
+  const st = step > 0 ? step : niceStep(max - min);
+  for (let v = Math.ceil(min / st - 1e-9) * st; v <= max + 1e-9; v += st) out.push(Math.round(v / st) * st);
+  return out;
+}
+
+// Kleiner Text an einer Stelle (Mitte), Größe als Faktor der Schriftgröße.
+function smallLabel(o, text, x, y, size = 0.62, align = 'mitte', color) {
+  drawLabel(o.ctx, o.out, { text, groesse: size, ausrichtung: align }, x, y, color || o.c, o.k);
+}
+
+// Weitere Formen für Zeichnungen. Jede bekommt die Form f und Hilfsfunktionen aus buildDrawing.
+const EXTRA_SHAPES = {
+  koordinatensystem(o) {
+    const { ctx, f, P, k, c, w, g, out } = o;
+    let xmin = num(f.xmin, -1), xmax = num(f.xmax, 6), ymin = num(f.ymin, -1), ymax = num(f.ymax, 5);
+    if (xmax <= xmin) [xmin, xmax] = [xmax - 1, xmin + 1];
+    if (ymax <= ymin) [ymin, ymax] = [ymax - 1, ymin + 1];
+    const [ax, ay] = P([num(f.x, 6), num(f.y, 4)]);
+    const W = num(f.b, 88) * k, H = num(f.h, o.hoehe - 8) * k;
+    const X = (v) => ax + ((v - xmin) / (xmax - xmin)) * W;
+    const Y = (v) => ay + ((ymax - v) / (ymax - ymin)) * H;
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const axY = Y(clamp(0, ymin, ymax)), axX = X(clamp(0, xmin, xmax));
+    const thin = w * 0.6;
+    const xs = ticks(xmin, xmax, num(f.xschritt ?? f.schritt, 0));
+    const ys = ticks(ymin, ymax, num(f.yschritt ?? f.schritt, 0));
+    if (f.gitter) {
+      const gc = ink(ctx, f.gitterfarbe) || '#9aa3b2';
+      for (const v of xs) out.s.push({ pts: wobbly(ctx, [[X(v), ay], [X(v), ay + H]], { amp: 0.2 }), w: thin * 0.7, c: gc, g });
+      for (const v of ys) out.s.push({ pts: wobbly(ctx, [[ax, Y(v)], [ax + W, Y(v)]], { amp: 0.2 }), w: thin * 0.7, c: gc, g });
+    }
+    const ext = ctx.size * 0.7;
+    const xa = [[ax - ext * 0.3, axY], [ax + W + ext, axY]];
+    const ya = [[axX, ay + H + ext * 0.3], [axX, ay - ext]];
+    out.s.push({ pts: wobbly(ctx, xa), w, c, g }, { pts: arrowHead(ctx, xa[1], xa[0], 0.8), w, c, g });
+    out.s.push({ pts: wobbly(ctx, ya), w, c, g }, { pts: arrowHead(ctx, ya[1], ya[0], 0.8), w, c, g });
+    const tl = ctx.size * 0.18;
+    const showNums = f.zahlen !== false;
+    const xEvery = Math.max(1, Math.ceil((ctx.size * 1.3) / Math.max(1, (W / Math.max(1, xs.length)))));
+    const yEvery = Math.max(1, Math.ceil((ctx.size * 0.8) / Math.max(1, (H / Math.max(1, ys.length)))));
+    xs.forEach((v, i) => {
+      if (Math.abs(v) < 1e-9) return;
+      out.s.push({ pts: wobbly(ctx, [[X(v), axY - tl], [X(v), axY + tl]], { amp: 0.1 }), w: thin, c, g });
+      if (showNums && i % xEvery === 0) smallLabel(o, fmt(v), X(v), axY + ctx.size * 0.62);
+    });
+    ys.forEach((v, i) => {
+      if (Math.abs(v) < 1e-9) return;
+      out.s.push({ pts: wobbly(ctx, [[axX - tl, Y(v)], [axX + tl, Y(v)]], { amp: 0.1 }), w: thin, c, g });
+      if (showNums && i % yEvery === 0) smallLabel(o, fmt(v), axX - ctx.size * 0.35, Y(v), 0.62, 'rechts');
+    });
+    if (showNums && xmin <= 0 && xmax >= 0 && ymin <= 0 && ymax >= 0) smallLabel(o, '0', axX - ctx.size * 0.35, axY + ctx.size * 0.55, 0.62, 'rechts');
+    smallLabel(o, f.xname ?? 'x', ax + W + ext, axY + ctx.size * 0.7, 0.8);
+    smallLabel(o, f.yname ?? 'y', axX + ctx.size * 0.5, ay - ext, 0.8, 'links');
+
+    const lo = ymin - (ymax - ymin) * 0.03, hi = ymax + (ymax - ymin) * 0.03;
+    for (const gr of f.graphen || f.graphs || []) {
+      const gc = ink(ctx, gr.farbe) || c;
+      let runs = [];
+      if (Array.isArray(gr.punkte)) {
+        runs = [gr.punkte.map(([vx, vy]) => [X(num(vx, 0)), Y(num(vy, 0))])];
+      } else if (gr.funktion) {
+        let fn;
+        try { fn = compileFormula(gr.funktion); } catch (e) { console.warn(e.message); continue; }
+        const a = num(gr.von, xmin), b = num(gr.bis, xmax);
+        const N = 160;
+        let cur = [], prev = null;
+        for (let i = 0; i <= N; i++) {
+          const vx = a + ((b - a) * i) / N;
+          const vy = fn(vx);
+          const ok = isFinite(vy) && vy >= lo && vy <= hi && !(prev !== null && Math.abs(vy - prev) > (ymax - ymin) * 0.7);
+          if (ok) cur.push([X(vx), Y(vy)]);
+          else if (cur.length) { runs.push(cur); cur = []; }
+          prev = isFinite(vy) ? vy : null;
+        }
+        if (cur.length) runs.push(cur);
+      }
+      runs = runs.filter((r) => r.length > 1);
+      for (const r of runs) {
+        const pts = gr.glatt === false || Array.isArray(gr.punkte) && !gr.glatt ? r : smooth(r.length > 40 ? r.filter((_, i) => i % 2 === 0 || i === r.length - 1) : r);
+        const st = wobbly(ctx, pts, { amp: 0.25, jitter: 0.3 });
+        if (gr.gestrichelt) for (const d of dashes(st, ctx.size * 0.45, ctx.size * 0.3)) out.s.push({ pts: d, w: w * 1.1, c: gc, g });
+        else out.s.push({ pts: st, w: w * 1.1, c: gc, g });
+      }
+      if (gr.text && runs.length) {
+        const last = runs[runs.length - 1];
+        const [lx, ly] = last[last.length - 1];
+        smallLabel(o, gr.text, lx + ctx.size * 0.25, ly - ctx.size * 0.5, 0.75, 'links', gc);
+      }
+    }
+    for (const pt of f.punkte || []) {
+      const vx = num(pt.x, 0), vy = num(pt.y, 0);
+      const px = X(vx), py = Y(vy);
+      const pc = ink(ctx, pt.farbe) || c;
+      if (pt.hilfslinien) {
+        for (const seg of [[[px, py], [px, axY]], [[px, py], [axX, py]]]) {
+          for (const d of dashes(wobbly(ctx, seg, { amp: 0.15 }), ctx.size * 0.3, ctx.size * 0.25)) out.s.push({ pts: d, w: thin, c: pc, g });
+        }
+      }
+      const rr = Math.max(1.5, w * 1.6);
+      out.s.push({ pts: ellipsePts(ctx, px, py, rr * 0.4, rr * 0.4), w: rr, c: pc, g });
+      if (pt.text) smallLabel(o, pt.text, px + ctx.size * 0.3, py - ctx.size * 0.55, 0.7, 'links', pc);
+    }
+  },
+
+  zahlenstrahl(o) {
+    const { ctx, f, P, k, c, w, g, out } = o;
+    const min = num(f.min, 0), max = num(f.max, 10);
+    const [ax, ay] = P([num(f.x, 3), num(f.y, o.hoehe / 2)]);
+    const W = num(f.b, 92) * k;
+    const X = (v) => ax + ((v - min) / (max - min || 1)) * W;
+    const line = [[ax - ctx.size * 0.3, ay], [ax + W + ctx.size * 0.8, ay]];
+    out.s.push({ pts: wobbly(ctx, line), w, c, g }, { pts: arrowHead(ctx, line[1], line[0], 0.8), w, c, g });
+    const tl = ctx.size * 0.25;
+    const ts = ticks(min, max, num(f.schritt, 0));
+    const every = Math.max(1, Math.ceil((ctx.size * 1.3) / Math.max(1, W / Math.max(1, ts.length))));
+    ts.forEach((v, i) => {
+      out.s.push({ pts: wobbly(ctx, [[X(v), ay - tl], [X(v), ay + tl]], { amp: 0.1 }), w: w * 0.7, c, g });
+      if (f.zahlen !== false && i % every === 0) smallLabel(o, fmt(v), X(v), ay + ctx.size * 0.75);
+    });
+    for (const pt of f.punkte || []) {
+      const pc = ink(ctx, pt.farbe) || ink(ctx, 'rot');
+      const px = X(num(pt.wert ?? pt.x, 0));
+      const rr = Math.max(1.5, w * 1.8);
+      out.s.push({ pts: ellipsePts(ctx, px, ay, rr * 0.4, rr * 0.4), w: rr, c: pc, g });
+      if (pt.text) smallLabel(o, pt.text, px, ay - ctx.size * 0.75, 0.7, 'mitte', pc);
+    }
+  },
+
+  klammer(o) {
+    const { ctx, f, P, w, c, g, out } = o;
+    if (!f.von || !f.nach) return;
+    const a = P(f.von), b = P(f.nach);
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len;
+    // "rechts"/"unten" (Standard): Spitze zeigt nach rechts bzw. unten, "links"/"oben" umgekehrt.
+    const dom = Math.abs(nx) > Math.abs(ny) ? nx : ny;
+    const wantNeg = f.seite === 'links' || f.seite === 'oben';
+    if ((dom < 0) !== wantNeg) { nx = -nx; ny = -ny; }
+    const d = Math.min(len * 0.12, ctx.size * 0.55);
+    const at = (t, n) => [a[0] + dx * t + nx * n * d, a[1] + dy * t + ny * n * d];
+    const pts = smooth([at(0, 0), at(0.04, 0.45), at(0.44, 0.55), at(0.5, 1), at(0.56, 0.55), at(0.96, 0.45), at(1, 0)]);
+    out.s.push({ pts: wobbly(ctx, pts, { amp: 0.2 }), w, c, g });
+    if (f.text) {
+      const [tx, ty] = at(0.5, 1);
+      const horiz = Math.abs(nx) > Math.abs(ny);
+      smallLabel(o, f.text, tx + nx * ctx.size * 0.4, ty + ny * ctx.size * 0.7, Number(f.groesse) || 0.85, horiz ? (nx > 0 ? 'links' : 'rechts') : 'mitte');
+    }
+  },
+
+  welle(o) { waveShape(o, 'welle'); },
+  zickzack(o) { waveShape(o, 'zickzack'); },
+
+  raute(o) {
+    const { ctx, f, P, k, add, fill, out, g, label } = o;
+    const [cx, cy] = P([f.x, f.y]);
+    const hb = (num(f.b, 20) * k) / 2, hh = (num(f.h, 12) * k) / 2;
+    const poly = [[cx, cy - hh], [cx + hb, cy], [cx, cy + hh], [cx - hb, cy], [cx, cy - hh]];
+    if (fill) out.u.push(...fillPoly(ctx, poly, fill, g));
+    add(wobbly(ctx, poly));
+    label(cx, cy);
+  },
+
+  stern(o) {
+    const { ctx, f, P, k, add, fill, out, g } = o;
+    const [cx, cy] = P([f.x, f.y]);
+    const r = num(f.r, 4) * k;
+    const poly = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 ? r * 0.42 : r;
+      poly.push([cx + Math.cos(t) * rr, cy + Math.sin(t) * rr]);
+    }
+    if (fill) out.u.push(...fillPoly(ctx, poly, fill, g));
+    add(wobbly(ctx, poly, { amp: 0.2 }));
+  },
+
+  haken(o) {
+    const { ctx, f, P, k, add } = o;
+    const [cx, cy] = P([f.x, f.y]);
+    const r = num(f.r, 3) * k;
+    add(wobbly(ctx, [[cx - r, cy], [cx - r * 0.3, cy + r * 0.7], [cx + r, cy - r]], { amp: 0.2 }));
+  },
+
+  kreuz(o) {
+    const { ctx, f, P, k, out, w, c, g } = o;
+    const [cx, cy] = P([f.x, f.y]);
+    const r = num(f.r, 3) * k;
+    out.s.push({ pts: wobbly(ctx, [[cx - r, cy - r], [cx + r, cy + r]], { amp: 0.2 }), w, c, g });
+    out.s.push({ pts: wobbly(ctx, [[cx + r, cy - r], [cx - r, cy + r]], { amp: 0.2 }), w, c, g });
+  },
+
+  balkendiagramm(o) {
+    const { ctx, f, P, k, c, w, g, out } = o;
+    const vals = (f.werte || []).map((v) => num(v, 0));
+    if (!vals.length) return;
+    const names = f.beschriftungen || [];
+    const [ax, ay] = P([num(f.x, 8), num(f.y, 4)]);
+    const W = num(f.b, 86) * k, H = num(f.h, o.hoehe - 12) * k;
+    const max = num(f.max, Math.max(...vals, 0) || 1);
+    const base = ay + H;
+    out.s.push({ pts: wobbly(ctx, [[ax, ay - ctx.size * 0.4], [ax, base], [ax + W, base]]), w, c, g });
+    const slot = W / vals.length, bw = slot * 0.6;
+    const fills = Array.isArray(f.fuellungen) ? f.fuellungen : null;
+    vals.forEach((v, i) => {
+      const x1 = ax + slot * i + (slot - bw) / 2, x2 = x1 + bw;
+      const y1 = base - (Math.max(0, v) / max) * H;
+      const fc = marker(fills ? fills[i % fills.length] : f.fuellung);
+      if (fc && base - y1 > 2) out.u.push(...hatch(ctx, y1, base, () => [x1, x2], fc, g));
+      if (base - y1 > 0.5) out.s.push({ pts: wobbly(ctx, [[x1, base], [x1, y1], [x2, y1], [x2, base]]), w, c: ink(ctx, f.farbe) || c, g });
+      if (f.zahlen !== false) smallLabel(o, fmt(v), (x1 + x2) / 2, y1 - ctx.size * 0.45, 0.62);
+      if (names[i] != null) smallLabel(o, String(names[i]), (x1 + x2) / 2, base + ctx.size * 0.65, 0.62);
+    });
+  },
+
+  kreisdiagramm(o) {
+    const { ctx, f, P, k, c, w, g, out } = o;
+    const vals = (f.werte || []).map((v) => Math.max(0, num(v, 0)));
+    const sum = vals.reduce((a, b) => a + b, 0);
+    if (!sum) return;
+    const names = f.beschriftungen || [];
+    const fills = Array.isArray(f.fuellungen) ? f.fuellungen : null;
+    const [cx, cy] = P([f.x, f.y]);
+    const r = num(f.r, 15) * k;
+    let a0 = -Math.PI / 2;
+    vals.forEach((v, i) => {
+      const a1 = a0 + (v / sum) * Math.PI * 2;
+      const fc = marker(fills ? fills[i % fills.length] : null);
+      if (fc) {
+        // Textmarker in Bögen von außen nach innen, jeweils etwas vom Rand des Stücks eingerückt.
+        const hw = Math.min(ctx.size * 0.8, r * 0.3);
+        for (let rr = r - hw * 0.5; rr > hw * 0.3; rr -= hw * 0.7) {
+          const inset = (hw * 0.5) / rr;
+          const b0 = a0 + inset, b1 = a1 - inset;
+          if (b1 - b0 <= 0.02) {
+            if (rr < r * 0.5) break;
+            continue;
+          }
+          const arc = [];
+          const steps = Math.max(2, Math.ceil(((b1 - b0) * rr) / 5));
+          for (let j = 0; j <= steps; j++) { const t = b0 + ((b1 - b0) * j) / steps; arc.push([r2(cx + Math.cos(t) * rr), r2(cy + Math.sin(t) * rr), 0.5]); }
+          out.u.push({ pts: arc, w: hw, c: fc, g });
+        }
+      }
+      if (vals.length > 1) out.s.push({ pts: wobbly(ctx, [[cx, cy], [cx + Math.cos(a0) * r, cy + Math.sin(a0) * r]], { amp: 0.2 }), w, c, g });
+      const am = (a0 + a1) / 2;
+      const txt = names[i] != null ? String(names[i]) : (f.zahlen !== false ? fmt(v) : '');
+      if (txt) {
+        const inside = v / sum > 0.12;
+        const rr = inside ? r * 0.6 : r + ctx.size * 0.9;
+        smallLabel(o, txt, cx + Math.cos(am) * rr, cy + Math.sin(am) * rr, 0.62);
+      }
+      a0 = a1;
+    });
+    out.s.push({ pts: ellipsePts(ctx, cx, cy, r, r), w, c, g });
+  },
+};
+EXTRA_SHAPES.achsen = EXTRA_SHAPES.koordinatensystem;
+EXTRA_SHAPES.graph = EXTRA_SHAPES.koordinatensystem;
+EXTRA_SHAPES.wellenlinie = EXTRA_SHAPES.welle;
+EXTRA_SHAPES.diagramm = EXTRA_SHAPES.balkendiagramm;
+EXTRA_SHAPES.hakenzeichen = EXTRA_SHAPES.haken;
+
+function waveShape(o, kind) {
+  const { ctx, f, P, k, add, arrows } = o;
+  if (!f.von || !f.nach) return;
+  const a = P(f.von), b = P(f.nach);
+  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  const amp = num(f.amplitude, 1.5) * k;
+  const n = Math.max(1, Math.round(num(f.wellen, len / (ctx.size * 1.2))));
+  const pts = [];
+  const steps = kind === 'zickzack' ? n * 2 : n * 12;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const off = kind === 'zickzack' ? (i === 0 || i === steps ? 0 : i % 2 ? amp : -amp) : Math.sin(t * n * Math.PI * 2) * amp;
+    pts.push([a[0] + dx * t + nx * off, a[1] + dy * t + ny * off]);
+  }
+  add(wobbly(ctx, pts, { amp: 0.15, jitter: 0.3 }));
+  arrows(pts, 'keiner');
+}
+
+// Kurzformen: Ein Koordinatensystem oder Zahlenstrahl direkt als Element, ohne "zeichnung" drumherum.
+const SHAPE_ELEMENTS = {
+  koordinatensystem: (el) => ({ breite: el.breite ?? 70, hoehe: el.hoehe ?? 70, ausrichtung: el.ausrichtung ?? 'mitte', formen: [{ ...el, form: 'koordinatensystem', x: 8, y: 6, b: 84, h: (el.hoehe ?? 70) - 12, breite: undefined, hoehe: undefined }] }),
+  zahlenstrahl: (el) => ({ breite: el.breite ?? 100, hoehe: el.hoehe ?? 12, formen: [{ ...el, form: 'zahlenstrahl', x: 3, y: (el.hoehe ?? 12) / 2, b: 92, breite: undefined, hoehe: undefined }] }),
+  balkendiagramm: (el) => ({ breite: el.breite ?? 80, hoehe: el.hoehe ?? 50, ausrichtung: el.ausrichtung ?? 'mitte', formen: [{ ...el, form: 'balkendiagramm', x: 8, y: 5, b: 86, h: (el.hoehe ?? 50) - 13, breite: undefined, hoehe: undefined }] }),
+  kreisdiagramm: (el) => ({ breite: el.breite ?? 60, hoehe: el.hoehe ?? 60, ausrichtung: el.ausrichtung ?? 'mitte', formen: [{ ...el, form: 'kreisdiagramm', x: 50, y: (el.hoehe ?? 60) / 2, r: Math.min(30, (el.hoehe ?? 60) / 2 - 8), breite: undefined, hoehe: undefined }] }),
+};
+
+// Füllt ein Vieleck mit Textmarker-Ringen, die zum Schwerpunkt hin kleiner werden.
+function fillPoly(ctx, poly, color, g) {
+  const pts = poly[0][0] === poly[poly.length - 1][0] && poly[0][1] === poly[poly.length - 1][1] ? poly.slice(0, -1) : poly;
+  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+  let inr = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length];
+    const len = Math.hypot(bx - ax, by - ay) || 1;
+    inr = Math.min(inr, Math.abs((bx - ax) * (ay - cy) - (ax - cx) * (by - ay)) / len);
+  }
+  if (!isFinite(inr) || inr < 1) return [];
+  const hw = Math.min(ctx.size * 0.8, inr * 0.9);
+  const out = [];
+  for (let d = hw * 0.5; d < inr; d += hw * 0.75) {
+    const sc = Math.max(0.02, 1 - d / inr);
+    const ring = pts.concat([pts[0]]).map(([x, y]) => [cx + (x - cx) * sc, cy + (y - cy) * sc]);
+    out.push({ pts: wobbly(ctx, ring, { amp: 0.2, jitter: 0.3 }).map(([x, y]) => [x, y, 0.5]), w: hw, c: color, g });
+    if (sc <= 0.05) break;
+  }
+  return out;
 }
 
 function polySpan(poly, y) {
@@ -749,6 +1087,7 @@ function buildElements(ctx, els, x0, x1) {
     } else if (art === 'tabelle') units.push(...buildTable(ctx, el, x0, x1));
     else if (art === 'zeichnung' || art === 'skizze' || art === 'grafik') units.push(...buildDrawing(ctx, el, x0, x1));
     else if (art === 'spalten') units.push(...buildColumns(ctx, el, x0, x1));
+    else if (SHAPE_ELEMENTS[art]) units.push(...buildDrawing(ctx, SHAPE_ELEMENTS[art](el), x0, x1));
     else if (art === 'trennlinie' || art === 'linie') units.push(...buildRule(ctx, el, x0, x1));
     else if (art === 'abstand' || art === 'leerzeile') units.push({ n: Math.max(1, Math.round(Number(el.zeilen) || 1)), s: [], u: [] });
     else if (el.text != null) units.push(...buildText(ctx, el, x0, x1));

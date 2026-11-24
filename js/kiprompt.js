@@ -16,8 +16,9 @@ INHALT ÜBERNEHMEN
 - Übernimm alle Striche: Unterstreichungen, Doppelunterstreichungen, Kästen um Text, eingekreiste Wörter, Durchstreichungen, Textmarker, Trennlinien, Pfeile, Klammern, Rahmen.
 - Farbige Kreide oder Stifte gibst du als Farbe an. Weiße Kreide und schwarzer oder dunkelblauer Stift sind die Standardfarbe und bekommen keine Farbangabe.
 - Lass weg, was nicht zum Tafelbild gehört: Bedienelemente von Beamer oder Programm, Logos, Foliennummern, Uhrzeit, Spiegelungen, Hände, Schwämme.
-- Unleserliche Stellen schreibst du als [?].
-- Formeln schreibst du als normalen Text mit Unicode-Zeichen: ² ³ ₂ ₃ · × → ⇒ ↔ ≈ ≠ ≤ ≥ √ ° Δ ∞. Brüche als a/b. Kein LaTeX.
+- Schreib nie Platzhalter wie [?], (Grafik), [Skizze], „siehe Bild“ oder Fragezeichen für Dinge, die du nicht darstellen kannst. Alles, was gezeichnet ist (Pfeile, Graphen, Skizzen, Diagramme, Symbole, Markierungen), zeichnest du mit den Formen unten nach, so genau es geht. Vereinfachen ist erlaubt, weglassen nicht.
+- Ist ein Wort schwer lesbar, nimm die wahrscheinlichste Lesart aus dem Zusammenhang.
+- Formeln schreibst du als normalen Text mit Unicode-Zeichen: ² ³ ₂ ₃ · × ± → ⇒ ↔ ≈ ≠ ≤ ≥ √ ° Δ ∞ ∑ ∫ π α β γ λ μ ρ σ φ Ω ⊥ ∥ ∠ ∈ ∅ € §. Brüche als a/b. Kein LaTeX.
 
 SEITEN
 - Eine Seite fasst etwa 28 Zeilen mit je etwa 50 Zeichen. Eine Tabellenzeile oder Listenzeile ist eine Zeile, eine Zeichnung mit "hoehe": 50 belegt etwa 10 Zeilen.
@@ -48,9 +49,22 @@ Elemente stehen in Leserichtung von oben nach unten. Jedes Element hat "art":
   { "form": "kreis", "x", "y", "r", "text" } und { "form": "ellipse", "x", "y", "rx", "ry", "text" } (x,y ist der Mittelpunkt)
   { "form": "bogen", "x", "y", "r", "start": 0, "ende": 90 } (Winkel in Grad, gegen den Uhrzeigersinn, 0 = rechts)
   { "form": "punkt", "x", "y", "text" }
+  { "form": "pfeil", "von": [x,y], "nach": [x,y], "bogen": 0.3 } (gebogener Pfeil, negativer Wert biegt zur anderen Seite)
+  { "form": "klammer", "von": [x,y], "nach": [x,y], "seite": "rechts" | "links" | "oben" | "unten", "text" } (geschweifte Klammer, die Spitze zeigt zur Seite)
+  { "form": "welle" } und { "form": "zickzack" } mit "von", "nach", "amplitude": 1.5, "wellen": 5
+  { "form": "raute", "x", "y", "b", "h", "text" } (Mittelpunkt, für Verzweigungen in Ablaufplänen)
+  { "form": "stern", "x", "y", "r" }, { "form": "haken", "x", "y", "r" }, { "form": "kreuz", "x", "y", "r" }
+  { "form": "koordinatensystem", "x", "y", "b", "h", "xmin": -2, "xmax": 6, "ymin": -1, "ymax": 5, "schritt": 1, "gitter": false, "xname": "x", "yname": "y",
+    "graphen": [ { "funktion": "0,5x² - 1", "text": "f", "farbe": "blau", "von": -2, "bis": 4, "gestrichelt": false }, { "punkte": [[0,1],[1,3],[2,2]], "text": "Messwerte" } ],
+    "punkte": [ { "x": 2, "y": 1, "text": "P(2|1)", "hilfslinien": true } ] }
+    Die App rechnet die Graphen selbst aus. Erlaubt sind + - * / ^ ², Klammern, Betrag |x|, sin cos tan sqrt ln log exp pi e und 2x statt 2*x. "punkte" bei einem Graphen verbindet Messwerte in Koordinaten des Systems.
+  { "form": "zahlenstrahl", "x", "y", "b", "min": -5, "max": 5, "schritt": 1, "punkte": [ { "wert": 2, "text": "a" } ] }
+  { "form": "balkendiagramm", "x", "y", "b", "h", "werte": [3,5,2], "beschriftungen": ["A","B","C"], "fuellung": "blau" }
+  { "form": "kreisdiagramm", "x", "y", "r", "werte": [50,30,20], "beschriftungen": ["A","B","C"], "fuellungen": ["gelb","gruen","rosa"] }
   { "form": "text", "x", "y", "text", "groesse": 0.9, "ausrichtung": "mitte" | "links" | "rechts" } (x,y ist die Mitte des Textes, bei "links" der linke Rand)
   Alle Formen kennen "farbe", "gestrichelt": true und "dicke": 1.5. Rechteck, Kreis, Ellipse und Polygon kennen "fuellung": "gelb" (Fläche wie mit Textmarker).
   Beschriftungen in der Zeichnung sind etwa 4 Einheiten hoch pro 1 "groesse" bei "breite": 100. Lass zwischen Formen und Texten genug Platz.
+- "koordinatensystem", "zahlenstrahl", "balkendiagramm", "kreisdiagramm" gehen auch direkt als Element, ohne "zeichnung" drumherum. Dann gelten "breite" und "hoehe" wie bei einer Zeichnung, alles andere wie bei der Form. Beispiel: { "art": "koordinatensystem", "breite": 70, "hoehe": 70, "xmin": -3, "xmax": 3, "ymin": -1, "ymax": 9, "graphen": [ { "funktion": "x²", "text": "f" } ] }
 - "trennlinie": { "gestrichelt": true } waagerechte Linie über die ganze Breite.
 - "abstand": { "zeilen": 1 } Leerzeilen.
 
@@ -63,7 +77,9 @@ TIPPS
 - Eine Mindmap oder ein Schema mit Kästen und Pfeilen ist eine "zeichnung" mit Rechtecken oder Ellipsen und Pfeilen. Schreib den Text der Kästen in deren "text".
 - Ein einfacher Pfeil mitten im Satz ist das Zeichen → im Text, keine Zeichnung.
 - Zwei Tafelhälften nebeneinander auf einer Seite sind "spalten".
-- Ein Koordinatensystem: zwei Pfeile als Achsen, Beschriftungen als "text", der Graph als "kurve".
+- Ein Graph an der Tafel wird ein "koordinatensystem". Steht die Funktionsgleichung dabei, nimm "funktion". Sonst lies Punkte ab und gib sie als "punkte" an. Achsenbereich und Schritt so wählen wie an der Tafel.
+- Ein Ablaufplan: "rechteck" für Schritte, "raute" für Fragen, "pfeil" dazwischen, mit "bogen" für Rückwege.
+- Steht neben mehreren Zeilen eine große geschweifte Klammer, nimm "spalten": links der Text, rechts eine "zeichnung" mit "klammer" und Beschriftung.
 - Setz "typ" und "version" immer. Das JSON muss gültig sein: doppelte Anführungszeichen, keine Kommentare, kein Komma am Ende einer Liste.
 
 BEISPIEL
