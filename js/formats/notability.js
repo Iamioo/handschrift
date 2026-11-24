@@ -3,9 +3,9 @@ import { writeBplist, Archive, Real, UID, appleTime } from './bplist.js';
 import { makeZip, uuid, uuidBytes } from './zip.js';
 import { PAGE } from '../render.js';
 import { widthFactor } from '../glyphs.js';
+import { md5hex } from './md5.js';
 
-const NB_WIDTH = 567;                         // Breite des Notability-Blatts
-const NB_PAGE_H = NB_WIDTH * 11 / 8.5;        // Seitenhöhe bei Papier "letter"
+const NB_WIDTH = 610;                         // Breite des Notability-Blatts bei importierter PDF (aus einer echten Notiz)
 
 const f32 = (arr) => new Uint8Array(new Float32Array(arr).buffer);
 const i32 = (arr) => new Uint8Array(new Int32Array(arr).buffer);
@@ -31,15 +31,16 @@ function toCubic(pts) {
   return out;
 }
 
-export function buildNotability(pages, { name = 'Handschrift' } = {}) {
-  // A4-Seiten auf das Notability-Blatt skalieren, jede Seite an ihren Platz untereinander.
-  const k = Math.min(NB_WIDTH / PAGE.w, NB_PAGE_H / PAGE.h);
-  const ox = (NB_WIDTH - PAGE.w * k) / 2;
+export function buildNotability(pages, { name = 'Handschrift', pdfName } = {}) {
+  // Die PDF-Seiten werden auf Blattbreite skaliert und liegen ohne Abstand untereinander.
+  const k = NB_WIDTH / PAGE.w;
+  const ox = 0;
+  const pageH = PAGE.h * k;
 
   const numPts = [], points = [], widths = [], colors = [], styles = [], uuids = [];
   const fracW = [], forces = [], altitude = [], azimuth = [];
   pages.forEach((page, pi) => {
-    const oy = pi * NB_PAGE_H;
+    const oy = pi * pageH;
     for (const s of page.strokes) {
       const cubic = toCubic(s.pts);
       numPts.push(cubic.length);
@@ -102,10 +103,30 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
   });
   const reflow = A.add({
     pageWidthInDocumentCoordsKey: new Real(NB_WIDTH),
-    nativeLayoutDeviceStringKey: A.str('iPad'),
+    nativeLayoutDeviceStringKey: A.str('Letter'),
     $class: A.cls('NBReflowStateLocked', ['NBReflowStateLocked', 'NBReflowState', 'NSObject']),
   });
-  const pdfFiles = A.array();
+  // Die Papier-PDF hängt als PDFFile an der Notiz; jede Seite verweist darauf.
+  const pdfFile = A.add({
+    $class: A.cls('PDFFile', ['PDFFile', 'NSObject']),
+    pdfFileName: A.str(pdfName),
+    contentBoxVersion: 1,
+    highlights: A.array(),
+    type: 0,
+    version: 2,
+  });
+  const pdfFiles = A.array([pdfFile]);
+  const mediaObjects = A.array();
+  const layoutKeys = (names) => names.map((k2) => A.str(k2));
+  const pageLayoutRich = A.mutableArray(pages.map((_, i) => A.mutableDict(
+    layoutKeys(['kPageLayoutPageIsBookmarkedKey', 'kPageLayoutDocumentPageNumberKey', 'kPageLayoutPDFFileNameKey', 'kPageLayoutPDFPageNumberKey', 'kPageLayoutPDFIsOriginalPageKey', 'kPageLayoutPDFFileKey']),
+    [A.add(false), A.add(i + 1), A.str(pdfName), A.add(i + 1), A.add(true), pdfFile],
+  )));
+  const pageLayoutModel = A.mutableArray(pages.map((_, i) => A.add({
+    'NS.keys': layoutKeys(['kPageLayoutDocumentPageNumberKey', 'kPageLayoutPageIsBookmarkedKey', 'kPageLayoutPDFPageNumberKey', 'kPageLayoutPDFIsOriginalPageKey', 'kPageLayoutPDFFileNameKey']),
+    'NS.objects': [A.add(i + 1), A.add(false), A.add(i + 1), A.add(true), A.str(pdfName)],
+    $class: A.cls('NSDictionary', ['NSDictionary', 'NSObject']),
+  })));
   A.set(richIdx, {
     formatVersion: 5,
     formattedStringTextAlignmentKey: 0,
@@ -116,9 +137,9 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
     reflowState: reflow,
     didBecomeReflowable: true,
     pdfFiles,
-    mediaObjects: pdfFiles,
+    mediaObjects,
     recordingTimestampString: attributed(true),
-    pageLayoutArray: empty(),
+    pageLayoutArray: pageLayoutRich,
   });
   const nameUid = A.str(name);
   const paper = A.add({
@@ -127,14 +148,14 @@ export function buildNotability(pages, { name = 'Handschrift' } = {}) {
     drawRotatedForOrientation: true,
     paperOrientation: A.str('portrait'),
     paperSize: A.str('letter'),
-    paperSizingBehavior: A.str(`lockedWidth:${NB_WIDTH}.0:iPad`),
-    alignsTextToLines: true,
-    lineStyle2: A.str('Lines:false:true:0.25'),
+    paperSizingBehavior: A.str('staticWidth'),
+    alignsTextToLines: false,
+    lineStyle2: A.str('No Lines'),
   });
   const layoutModel = A.add({
     documentPaperAttributes: paper,
     $class: A.cls('Notability.NoteDocumentPaperLayoutModel', ['NoteDocumentPaperLayoutModel', 'NSObject']),
-    pageLayoutArray: empty(),
+    pageLayoutArray: pageLayoutModel,
   });
   const emptyData = new Uint8Array(0);
   A.set(rootIdx, {
@@ -216,21 +237,57 @@ export function notePackageName(name) {
   return t || 'Handschrift';
 }
 
-export async function buildNotabilityFile(pages, { name, thumbnailPng }) {
+// Suchindizes zur PDF, wie Notability sie neben der Notiz ablegt.
+function pdfIndexFiles(pdfBytes, pdfName, nPages) {
+  const md5 = md5hex(pdfBytes);
+  const box = [[0, 0], [PAGE.w, PAGE.h]];
+  const meta = writeBplist({
+    version: 26,
+    pages: Array.from({ length: nPages }, (_, i) => ({
+      rotation: 0, pageNumber: i + 1, artBox: box, mediaBox: box, cropBox: box, bleedBox: box, trimBox: box,
+      version: 2, linksStorage: { numLinks: 0, urlStrings: [], intData: [] },
+    })),
+    md5,
+  });
+  const image = writeBplist({ pageImageString: { [pdfName]: {} }, pageImageRects: { [pdfName]: {} } });
+  const d = `NBPDFIndex/${pdfName}/`;
+  const inner = makeZip([
+    { name: d },
+    { name: d + 'PDFImageIndex.plist', data: image },
+    { name: d + 'PDFLayoutIndex.nbpdflayout', data: new Uint8Array([3, 0, 0, 0, 0, 0, 0, 0, 0, 0]) },
+    { name: d + 'PDFTextIndex.txt', data: new Uint8Array(0) },
+    { name: d + 'PDFMetadataIndex.plist', data: meta },
+    { name: 'NBPDFIndex/' },
+  ], { madeBy: 0x0315, dirAttr: (0o40755 << 16) >>> 0 });
+  const noteMeta = writeBplist({
+    pageNumbers: { [pdfName]: [1, nPages] },
+    pdfFilesMD5: md5hex(new TextEncoder().encode(md5)),
+    version: 26,
+  });
+  return { inner, noteMeta };
+}
+
+export async function buildNotabilityFile(pages, { name, thumbnailPng, pdfBytes }) {
   name = notePackageName(name);
-  const { session, metadata, library } = buildNotability(pages, { name });
+  const pdfName = uuid().toUpperCase() + '.pdf';
+  const { session, metadata, library } = buildNotability(pages, { name, pdfName });
+  const { inner, noteMeta } = pdfIndexFiles(pdfBytes, pdfName, pages.length);
   // Leerer Handschrift-Suchindex wie in echten Notability-Dateien
   const index = writeBplist({ version: 7, minCompatibleVersion: 7, pages: {} });
   const dir = name + '/';
   return makeZip([
     { name: dir + 'Assets/' },
     { name: dir + 'Session.plist', data: session },
+    { name: dir + 'NBPDFIndex/' },
+    { name: dir + 'NBPDFIndex/PDFIndex.zip', data: inner },
+    { name: dir + 'NBPDFIndex/NoteDocumentPDFMetadataIndex.plist', data: noteMeta },
     { name: dir + 'thumb12x.png', data: thumbnailPng },
     { name: dir + 'Recordings/' },
     { name: dir + 'Recordings/library.plist', data: library },
     { name: dir + 'metadata.plist', data: metadata },
     { name: dir + 'Images/' },
     { name: dir + 'PDFs/' },
+    { name: dir + 'PDFs/' + pdfName, data: pdfBytes },
     { name: dir + 'HandwritingIndex/' },
     { name: dir + 'HandwritingIndex/index.plist', data: index },
     { name: dir },

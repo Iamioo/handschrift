@@ -97,7 +97,17 @@ GoodNotes und Notability speichern importierte PDFs unverändert (GoodNotes unte
 
 GoodNotes: Ereignis 2 (Papiervorlage) verweist mit Feld 4 auf den Anhang und mit Feld 5 vermutlich auf die PDF-Seite. Ereignis 54 (Seite) verweist mit Feld 3 auf die Vorlage. Die Striche werden mit Vorlagenbreite / Seitenbreite in PDF-Punkte umgerechnet und über die Mitte ihres Rahmens einem Kästchen zugeordnet. Gelöschte Striche (Kopf-Feld 3 = 1 oder Inhalt-Feld 14 = 1) werden übersprungen.
 
-Notability: Noch ohne echte Beispieldatei. Angenommen wird, dass die PDF-Seiten auf Blattbreite skaliert ohne Abstand untereinander liegen.
+Notability: Angenommen wird, dass die PDF-Seiten auf Blattbreite skaliert ohne Abstand untereinander liegen.
+
+## Notability mit PDF-Hintergrund
+
+Aufbau nach einer echten Notiz mit importierter PDF (Notability 16.14):
+
+- Die PDF liegt unter `PDFs/<UUID>.pdf`. In `Session.plist` steht sie als `PDFFile` (`pdfFileName`, `contentBoxVersion` 1, `highlights` leer, `type` 0, `version` 2) in `richText.pdfFiles`. `mediaObjects` ist ein eigenes, leeres Array.
+- `richText.pageLayoutArray` und `NoteDocumentPaperLayoutModel.pageLayoutArray` führen pro Seite ein Wörterbuch mit Seitennummer, PDF-Seitennummer, `kPageLayoutPDFIsOriginalPageKey` und Dateiname. Die Variante in `richText` enthält zusätzlich das `PDFFile`-Objekt.
+- Das Papier heißt `staticWidth`, hat `lineStyle2` = `No Lines` und `alignsTextToLines` = false. Das Blatt ist 610 Einheiten breit (`pageWidthInDocumentCoordsKey`), `nativeLayoutDeviceStringKey` ist `Letter`.
+- `NBPDFIndex/NoteDocumentPDFMetadataIndex.plist` enthält `pdfFilesMD5` (MD5 des Hex-Textes der PDF-MD5) und die Seitenbereiche. `NBPDFIndex/PDFIndex.zip` enthält pro PDF `PDFMetadataIndex.plist` (Seitenrahmen, MD5 der PDF), `PDFImageIndex.plist`, `PDFLayoutIndex.nbpdflayout` und `PDFTextIndex.txt`.
+- Der Export baut genau diese Struktur nach. Für mehrere Seiten ist der Seitenbereich `[1, n]` geraten, die Probedatei hatte nur eine Seite.
 
 Noch offen:
 

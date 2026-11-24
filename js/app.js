@@ -530,7 +530,8 @@ async function exportAs(kind) {
       });
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.goodnotes`);
     } else if (kind === 'notability') {
-      const bytes = await buildNotabilityFile(current.pages, { name: title, thumbnailPng: await thumbnail('image/png') });
+      const pdfBytes = buildPdf(current.pages.map(() => ({ strokes: [] })), current.lines, { title: 'Papier' });
+      const bytes = await buildNotabilityFile(current.pages, { name: title, thumbnailPng: await thumbnail('image/png'), pdfBytes });
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${notePackageName(title)}.note`);
     } else {
       const bytes = buildPdf(current.pages, current.lines, { editable: kind === 'ink', title });
