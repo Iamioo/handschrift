@@ -515,13 +515,16 @@ async function thumbnail(type) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+// GoodNotes zeigt PDF-Punkte 11/6-fach (132 ppi / 72). Abgelesen an der Papier-PDF aus GoodNotes (455,04 pt für 834,24).
+const GOODNOTES_PDF_SCALE = 6 / 11;
+
 async function exportAs(kind) {
   if (!current?.pages.length) { alert('Es gibt noch nichts zu exportieren.'); return; }
   const title = exportTitle();
   const base = safeFileName(title);
   try {
     if (kind === 'goodnotes') {
-      const paperPdf = buildPdf([{ strokes: [] }], current.lines, { title: 'Papier' });
+      const paperPdf = buildPdf([{ strokes: [] }], current.lines, { title: 'Papier', scale: GOODNOTES_PDF_SCALE });
       const bytes = buildGoodnotes(current.pages, {
         title,
         paperPdf,

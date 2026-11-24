@@ -61,8 +61,11 @@ function pdfDate(d = new Date()) {
   return `D:${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export function buildPdf(pages, lines, { editable = false, title = 'Handschrift', size = PAGE, comment = '' } = {}) {
+// scale: Seitenmaß in der PDF = Blattmaß * scale (Inhalt wird mitskaliert). GoodNotes rechnet PDF-Punkte
+// mit 11/6 in Blattmaße um; seine eigenen Papier-PDFs sind darum 455,04 pt breit für ein 834,24 breites Blatt.
+export function buildPdf(pages, lines, { editable = false, title = 'Handschrift', size = PAGE, comment = '', scale = 1 } = {}) {
   const W = size.w, H = size.h;
+  const sc = String(Math.round(scale * 1e6) / 1e6);
   const objs = [null, null]; // 1: Katalog, 2: Seitenbaum
   const add = (s) => { objs.push(s); return objs.length; };
   const stream = (dict, data) => `<< ${dict} /Length ${data.length} >>\nstream\n${data}\nendstream`;
@@ -76,6 +79,9 @@ export function buildPdf(pages, lines, { editable = false, title = 'Handschrift'
     const pageId = add(null);
     pageIds.push(pageId);
     let content = paper + (page.ops || '');
+    const wrap = (c) => (scale === 1 ? c : `q ${sc} 0 0 ${sc} 0 0 cm
+${c}Q
+`);
     const annots = [];
     if (!editable) {
       for (const s of page.strokes) content += strokeOps(s, H);
@@ -110,9 +116,9 @@ export function buildPdf(pages, lines, { editable = false, title = 'Handschrift'
         ));
       }
     }
-    const contentId = add(stream('', content));
+    const contentId = add(stream('', wrap(content)));
     objs[pageId - 1] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(W)} ${n(H)}] /Contents ${contentId} 0 R /Resources ${resources}` +
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(W * scale)} ${n(H * scale)}] /Contents ${contentId} 0 R /Resources ${resources}` +
       (annots.length ? ` /Annots [${annots.map((a) => a + ' 0 R').join(' ')}]` : '') + ' >>';
   });
 
