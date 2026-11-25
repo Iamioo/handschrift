@@ -201,14 +201,63 @@ const marker = (name) => {
 // Zerlegt Text mit Auszeichnung in Zeichen mit Merkmalen.
 // __unterstrichen__  ==markiert==  ~~durchgestrichen~~  [[eingerahmt]]  {{eingekreist}}
 // <rot>farbig</rot>  <markiert:gruen>andere Markerfarbe</markiert>
+// Mathe-Schreibweisen, wie KIs sie gern im LaTeX-Stil schreiben, in Zeichen übersetzen.
+// \frac, \sqrt, ^{…} und _{…} bleiben als Befehle stehen und werden beim Setzen gezeichnet.
+const TEX = {
+  cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', le: '≤', leq: '≤', ge: '≥', geq: '≥', neq: '≠', ne: '≠', approx: '≈',
+  pi: 'π', infty: '∞', alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', Delta: 'Δ', epsilon: 'ε', varepsilon: 'ε', eta: 'η',
+  theta: 'θ', lambda: 'λ', mu: 'μ', rho: 'ρ', sigma: 'σ', Sigma: 'Σ', tau: 'τ', phi: 'φ', varphi: 'φ', omega: 'ω', Omega: 'Ω',
+  rightarrow: '→', to: '→', leftarrow: '←', Rightarrow: '⇒', Leftrightarrow: '⇔', leftrightarrow: '↔', rightleftharpoons: '⇌',
+  degree: '°', circ: '°', angle: '∠', perp: '⊥', parallel: '∥', in: '∈', emptyset: '∅', sum: '∑', int: '∫', propto: '∝',
+  ldots: '…', dots: '…', quad: '  ', qquad: '    ', ',': ' ', ';': ' ', '%': '%', text: '', mathrm: '', left: '', right: '',
+};
+const VULGAR = { '½': ['1', '2'], '⅓': ['1', '3'], '⅔': ['2', '3'], '¼': ['1', '4'], '¾': ['3', '4'], '⅕': ['1', '5'], '⅙': ['1', '6'], '⅛': ['1', '8'], '⅜': ['3', '8'], '⅝': ['5', '8'], '⅞': ['7', '8'] };
+
+function normalizeMath(t) {
+  return String(t)
+    // JSON macht aus "\frac" ein Seitenvorschub-Zeichen, aus "\times" einen Tabulator: zurückholen.
+    .replace(/\f(rac\{)/g, '\\f$1').replace(/\t(imes)/g, '\\t$1').replace(/\r(ight)/g, '\\r$1').replace(/\b(eta)/g, '\\b$1')
+    .replace(/\$\$?/g, '')
+    .replace(/\\d?frac(?=\{)/g, '\u0001F').replace(/\\sqrt(?=\{)/g, '\u0001S')
+    .replace(/\\([a-zA-Z]+|[,;%])\s?/g, (all, name) => (name in TEX ? TEX[name] : all))
+    .replace(/[½⅓⅔¼¾⅕⅙⅛⅜⅝⅞]/g, (c) => `\u0001F{${VULGAR[c][0]}}{${VULGAR[c][1]}}`);
+}
+
+// Liest eine Gruppe {…} ab Position j (dort steht "{"). Gibt [Inhalt, Position nach "}"] zurück.
+function readGroup(str, j) {
+  if (str[j] !== '{') return null;
+  let d = 0;
+  for (let k = j; k < str.length; k++) {
+    if (str[k] === '{') d++;
+    else if (str[k] === '}' && --d === 0) return [str.slice(j + 1, k), k + 1];
+  }
+  return null;
+}
+
 function parseInline(ctx, raw, color, hc) {
   // Platzhalter für Unleserliches lässt die App weg, statt Fragezeichen zu schreiben.
-  const str = prepareText(String(raw ?? '').replace(/\s?\[(?:\?|\.\.\.|…|unleserlich)\]/gi, ''), ctx.font);
+  const str = prepareText(normalizeMath(String(raw ?? '').replace(/\s?\[(?:\?|\.\.\.|…|unleserlich)\]/gi, '')), ctx.font);
   const out = [];
   const m = { u: 0, h: 0, s: 0, k: 0, o: 0 };
   const cs = [color], hs = [hc];
   for (let i = 0; i < str.length;) {
     const two = str.substr(i, 2);
+    // Mathe: Bruch, Wurzel, Hoch- und Tiefstellung mit Klammern
+    if (two === '\u0001F') {
+      const a = readGroup(str, i + 2), b = a && readGroup(str, a[1]);
+      if (b) { out.push({ ch: '\u0001', math: 'frac', parts: [a[0], b[0]], m: { ...m }, c: cs[cs.length - 1], hc: hs[hs.length - 1] }); i = b[1]; continue; }
+    }
+    if (two === '\u0001S') {
+      const a = readGroup(str, i + 2);
+      if (a) { out.push({ ch: '\u0001', math: 'sqrt', parts: [a[0]], m: { ...m }, c: cs[cs.length - 1], hc: hs[hs.length - 1] }); i = a[1]; continue; }
+    }
+    if ((two === '^{' || (two === '_{' && str[i + 2] !== '_')) && str[i - 1] !== '_') {
+      const a = readGroup(str, i + 1);
+      if (a) { out.push({ ch: '\u0001', math: two[0] === '^' ? 'sup' : 'sub', parts: [a[0]], m: { ...m }, c: cs[cs.length - 1], hc: hs[hs.length - 1] }); i = a[1]; continue; }
+    }
+    if (str[i] === '^' && /[0-9a-zA-Z+\-]/.test(str[i + 1] || '')) {
+      out.push({ ch: '\u0001', math: 'sup', parts: [str[i + 1]], m: { ...m }, c: cs[cs.length - 1], hc: hs[hs.length - 1] }); i += 2; continue;
+    }
     if (two === '__') { m.u = m.u ? 0 : 1; i += 2; continue; }
     if (two === '==') { m.h = m.h ? 0 : 1; i += 2; continue; }
     if (two === '~~') { m.s = m.s ? 0 : 1; i += 2; continue; }
@@ -284,6 +333,7 @@ function typesetLines(ctx, runs, width, size) {
       line.items.push({ space: true, r, adv }); line.w += adv;
       continue;
     }
+    if (r.math) { (word ||= []).push(mathItem(ctx, r, size)); continue; }
     const gl = ctx.glyph(r.ch);
     (word ||= []).push({ gl, r, adv: gl.adv * size });
   }
@@ -311,6 +361,7 @@ function emitLine(ctx, line, x0, width, align, size, y, opts = {}) {
   for (const it of line.items) {
     it.x = x;
     if (it.space) { g = ctx.gid(); x += it.adv; continue; }
+    if (it.r.math) { const e = emitMath(ctx, it, x, y, size, penW, g); s.push(...e.s); u.push(...e.u); x += it.adv; continue; }
     for (const pts of glyphPoints(it.gl, x, y, size, slope, startX)) s.push({ pts, w: penW, c: it.r.c, g });
     x += it.adv;
   }
@@ -334,16 +385,18 @@ function emitLine(ctx, line, x0, width, align, size, y, opts = {}) {
       while (b >= 0 && r.items[b].space) b--;
       if (a < 0) return null;
       const first = r.items[a], last = r.items[b];
-      return { xa: first.x, xb: last.x + last.adv - gap, c: first.r.c, hc: first.r.hc };
+      const frac = r.items.some((it) => it.r.math === 'frac');
+      return { xa: first.x, xb: last.x + last.adv - gap, c: first.r.c, hc: first.r.hc, frac };
     }).filter(Boolean);
   };
   const dw = ctx.penW * 0.9;
   for (const r of runsOf('h', (a, b) => a.r.hc === b.r.hc)) {
-    const hw = size * 0.78;
+    const hw = size * (r.frac ? 1.2 : 0.78);
     u.push({ pts: wobbly(ctx, [[r.xa - 1, yAt(r.xa, -0.3 * size)], [r.xb + 1, yAt(r.xb, -0.3 * size)]], { amp: 0.4, jitter: 0.6 }), w: hw, c: r.hc, g: ctx.gid() });
   }
   for (const r of runsOf('u', () => true)) {
-    s.push({ pts: wobbly(ctx, [[r.xa - 1, yAt(r.xa, 0.14 * size)], [r.xb + 2, yAt(r.xb, 0.14 * size)]]), w: dw, c: r.c, g: ctx.gid() });
+    const dy = (r.frac ? 0.5 : 0.14) * size; // unter einem Bruch tiefer, sonst geht der Strich durch den Nenner
+    s.push({ pts: wobbly(ctx, [[r.xa - 1, yAt(r.xa, dy)], [r.xb + 2, yAt(r.xb, dy)]]), w: dw, c: r.c, g: ctx.gid() });
   }
   for (const r of runsOf('s', () => true)) {
     s.push({ pts: wobbly(ctx, [[r.xa - 2, yAt(r.xa, -0.24 * size)], [r.xb + 2, yAt(r.xb, -0.27 * size)]]), w: dw, c: r.c, g: ctx.gid() });
@@ -366,6 +419,55 @@ function emitLine(ctx, line, x0, width, align, size, y, opts = {}) {
     }
   }
   return { s, u, w: line.w, x: startX };
+}
+
+/* ---------- Mathe: Brüche, Wurzeln, Hoch- und Tiefstellung ---------- */
+
+const SUB = 0.7;   // Größe von Zähler, Nenner und Hochzahlen relativ zur Schrift
+
+function subLine(ctx, text, r, size) {
+  const runs = parseInline(ctx, text, r.c, r.hc).map((x) => ({ ...x, m: { u: 0, h: 0, s: 0, k: 0, o: 0 } }));
+  return typesetLines(ctx, runs, 1e6, size)[0] || { items: [], w: 0 };
+}
+
+function mathItem(ctx, r, size) {
+  if (r.math === 'frac') {
+    const sz = size * SUB;
+    const num = subLine(ctx, r.parts[0], r, sz), den = subLine(ctx, r.parts[1], r, sz);
+    const w = Math.max(num.w, den.w) + size * 0.25;
+    return { r, num, den, sz, adv: w + size * 0.26 };
+  }
+  if (r.math === 'sqrt') {
+    const body = subLine(ctx, r.parts[0], r, size);
+    return { r, body, adv: body.w + size * 0.55 };
+  }
+  const sz = size * (r.math === 'sup' ? 0.62 : 0.6);
+  const body = subLine(ctx, r.parts[0], r, sz);
+  return { r, body, sz, adv: body.w + size * 0.05 };
+}
+
+// Zeichnet ein Mathe-Element. Der Bruch sitzt so, dass er in eine Heftzeile passt:
+// Bruchstrich auf Höhe der Mitte kleiner Buchstaben, Zähler darüber, Nenner darunter.
+function emitMath(ctx, it, x, y, size, penW, g) {
+  const s = [], u = [];
+  const put = (line, x0, base, sz) => { const e = emitLine(ctx, line, x0, line.w, 'links', sz, base); s.push(...e.s); u.push(...e.u); };
+  const lw = penW * 0.9;
+  if (it.r.math === 'frac') {
+    const bar = y - size * 0.27;
+    const w = it.adv - size * 0.26;
+    const x0 = x + size * 0.1;
+    put(it.num, x0 + (w - it.num.w) / 2, bar - size * 0.13, it.sz);
+    put(it.den, x0 + (w - it.den.w) / 2, bar + size * 0.13 + it.sz * 0.72, it.sz);
+    s.push({ pts: wobbly(ctx, [[x0, bar], [x0 + w, bar]], { amp: 0.3 }), w: lw, c: it.r.c, g });
+  } else if (it.r.math === 'sqrt') {
+    const top = y - size * 0.88;
+    const bx = x + size * 0.42;
+    s.push({ pts: wobbly(ctx, [[x + size * 0.02, y - size * 0.32], [x + size * 0.12, y - size * 0.38], [x + size * 0.24, y + size * 0.06], [bx, top], [bx + it.body.w + size * 0.08, top]], { amp: 0.3 }), w: lw, c: it.r.c, g });
+    put(it.body, bx + size * 0.05, y, size);
+  } else {
+    put(it.body, x + size * 0.02, it.r.math === 'sup' ? y - size * 0.45 : y + size * 0.16, it.sz);
+  }
+  return { s, u };
 }
 
 /* ---------- Blöcke ---------- */
@@ -396,8 +498,11 @@ function textUnits(ctx, text, x0, x1, opts = {}) {
   const runs = parseInline(ctx, text, color, hc);
   const lines = typesetLines(ctx, runs, x1 - x0, size);
   return lines.map((line) => {
-    const e = emitLine(ctx, line, x0, x1 - x0, opts.align, size, (L - 1) * ctx.lh, opts);
-    return { n: L, s: e.s, u: e.u };
+    // Ein Bruch braucht wie im Heft zwei Zeilen: Die Zeile rutscht eine Linie tiefer, darüber bleibt Platz für den Zähler.
+    const tall = scale < 1.5 && line.items.some((it) => it.r?.math === 'frac');
+    const n = tall ? Math.max(L, 2) : L;
+    const e = emitLine(ctx, line, x0, x1 - x0, opts.align, size, (n - 1) * ctx.lh, opts);
+    return { n, s: e.s, u: e.u };
   });
 }
 

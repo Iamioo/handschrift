@@ -9,6 +9,7 @@ import { makeTestFont } from './testfont.js';
 import { buildTemplatePdf, importFilledTemplate } from './template.js';
 import { layoutScene, parseSceneText, sceneInfo, layoutWorksheet, parseWorksheetText } from './scene.js';
 import { KI_BLATT_PROMPT, KI_BLATT_EXAMPLE } from './kiblatt.js';
+import { KI_AUFGABEN_PROMPT, KI_AUFGABEN_EXAMPLE } from './kiaufgaben.js';
 import { loadWorksheetFiles, saveWorksheet, restoreWorksheet, thumbURL, makeDemoSheet } from './worksheet.js';
 import { KI_PROMPT } from './kiprompt.js';
 import { KI_EXAMPLE } from './kiexample.js';
@@ -35,6 +36,7 @@ const settings = loadSettings({
   orientation: 'hoch',
   packs: [],
   blattJson: '',
+  aufgabenJson: '',
   tplMissing: false,
 });
 
@@ -70,6 +72,7 @@ function show(view) {
   if (view === 'text') openText();
   if (view === 'board') openBoard();
   if (view === 'sheet') openSheet();
+  if (view === 'homework' && !$('hw-json').value) $('hw-json').value = settings.aufgabenJson || '';
 }
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.view)));
 
@@ -630,6 +633,56 @@ $('ws-go').addEventListener('click', () => {
   show('text');
 });
 
+/* ---------- Aufgaben per KI ---------- */
+
+$('hw-prompt').textContent = KI_AUFGABEN_PROMPT;
+$('hw-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(KI_AUFGABEN_PROMPT);
+    $('hw-status').textContent = 'Prompt kopiert. Füge ihn in einen neuen KI-Chat ein und schick danach die Aufgaben.';
+  } catch {
+    $('hw-prompt').closest('details').open = true;
+    const r = document.createRange();
+    r.selectNodeContents($('hw-prompt'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+    $('hw-status').textContent = 'Kopieren ging nicht automatisch. Der Prompt ist markiert, kopiere ihn von Hand.';
+  }
+});
+$('hw-share').addEventListener('click', () => deliver(new Blob([KI_AUFGABEN_PROMPT], { type: 'text/plain' }), 'Handschrift-Aufgaben-Prompt.txt'));
+$('hw-paste').addEventListener('click', async () => {
+  try { $('hw-json').value = await navigator.clipboard.readText(); $('hw-status').textContent = ''; } catch {
+    $('hw-status').textContent = 'Kein Zugriff auf die Zwischenablage. Füge den Text mit langem Tippen ins Feld ein.';
+  }
+});
+$('hw-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) $('hw-json').value = await file.text();
+});
+$('hw-example').addEventListener('click', () => {
+  $('hw-json').value = JSON.stringify(KI_AUFGABEN_EXAMPLE, null, 2);
+  $('hw-status').textContent = 'Beispiel geladen. Tippe auf „Lösung schreiben“.';
+});
+$('hw-go').addEventListener('click', () => {
+  let doc;
+  try {
+    doc = parseSceneText($('hw-json').value);
+  } catch (err) {
+    $('hw-status').textContent = 'Das klappt so nicht: ' + err.message + ' Kopiere die ganze Antwort der KI oder bitte sie, nur gültiges JSON zu schicken.';
+    return;
+  }
+  if (dirty && !confirm('Deine Änderungen auf den Seiten gehen verloren. Fortfahren?')) return;
+  settings.aufgabenJson = $('hw-json').value;
+  settings.source = 'aufgabe';
+  if (doc.ausrichtung === 'quer' || doc.ausrichtung === 'hoch') settings.orientation = doc.ausrichtung;
+  if (PAPER_NAMES[doc.papier]) settings.paper = PAPER_NAMES[doc.papier];
+  dirty = false;
+  saveSettings(settings);
+  syncTextControls();
+  $('hw-status').textContent = '';
+  show('text');
+});
+
 /* ---------- Text & Export ---------- */
 
 let dirty = false;      // true, sobald jemand im Ergebnis radiert oder schreibt
@@ -662,7 +715,7 @@ for (const [id, key, fmt] of controls) {
   });
 }
 function syncTextControls() {
-  const ki = settings.source === 'ki' || settings.source === 'blatt';
+  const ki = settings.source !== 'text';
   const blatt = settings.source === 'blatt';
   $('t-source').value = settings.source;
   $('t-text-wrap').hidden = ki;
@@ -678,6 +731,12 @@ $('t-source').addEventListener('change', () => {
     settings.source = 'text';
     alert('Es gibt noch keine KI-Datei. Füge sie zuerst unter „Tafelbild“ ein.');
     show('board');
+    return;
+  }
+  if (settings.source === 'aufgabe' && !settings.aufgabenJson) {
+    settings.source = 'text';
+    alert('Es gibt noch keine Lösung. Füge die Antwort der KI zuerst unter „Aufgaben“ ein.');
+    show('homework');
     return;
   }
   if (settings.source === 'blatt' && (!settings.blattJson || !sheet.length)) {
@@ -770,11 +829,12 @@ function generate(byUser) {
       warn.textContent = 'KI-Datei fehlerhaft: ' + (err.message || err);
       return;
     }
-  } else if (settings.source === 'ki') {
+  } else if (settings.source === 'ki' || settings.source === 'aufgabe') {
     try {
-      const doc = parseSceneText(settings.kiJson);
+      const hw = settings.source === 'aufgabe';
+      const doc = parseSceneText(hw ? settings.aufgabenJson : settings.kiJson);
       result = layoutScene(doc, f, settings);
-      $('t-ki-info').textContent = `„${doc.titel || 'Tafelbild'}“: ${result.pages.length} ${result.pages.length === 1 ? 'Seite' : 'Seiten'}. Ändern kannst du die Datei unter „Tafelbild“.`;
+      $('t-ki-info').textContent = `„${doc.titel || (hw ? 'Aufgaben' : 'Tafelbild')}“: ${result.pages.length} ${result.pages.length === 1 ? 'Seite' : 'Seiten'}. Ändern kannst du die Datei unter „${hw ? 'Aufgaben' : 'Tafelbild'}“.`;
       result.title = doc.titel;
     } catch (err) {
       console.error(err);
@@ -803,7 +863,7 @@ $('ed-undo').addEventListener('click', () => editor.undo());
 $('ed-delete').addEventListener('click', () => editor.deleteSelection());
 
 function exportTitle() {
-  if ((settings.source === 'ki' || settings.source === 'blatt') && current?.title) return String(current.title).trim().slice(0, 40);
+  if (settings.source !== 'text' && current?.title) return String(current.title).trim().slice(0, 40);
   return (settings.text.split('\n').find((l) => l.trim()) || 'Handschrift').trim().slice(0, 40);
 }
 
@@ -858,4 +918,4 @@ $('ex-pdf').addEventListener('click', () => exportAs('flat'));
 
 /* ---------- Start ---------- */
 
-show(['fonts', 'capture', 'board', 'sheet', 'text'].includes(settings.view) ? settings.view : 'capture');
+show(['fonts', 'capture', 'board', 'sheet', 'homework', 'text'].includes(settings.view) ? settings.view : 'capture');

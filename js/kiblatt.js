@@ -73,7 +73,7 @@ AUFGABENTYPEN
 - Tabellen ausfüllen: ein "text" pro Zelle.
 - Rechnen: Ergebnis auf die Linie, Rechenweg darüber, wenn Platz ist. Ergebnisse __unterstreichen__ oder doppelt unterstreichen, wenn das zum Fach passt.
 - Zeichnen, skizzieren, Graph einzeichnen: "zeichnung" im vorgesehenen Feld.
-- Formeln als Text mit Unicode: ² ³ ₂ · × ± → ⇌ ≈ ≠ ≤ ≥ √ π Δ α β λ μ Ω °. Brüche als a/b. Kein LaTeX.
+- Formeln als Text mit Unicode: ² ³ ₂ · × ± → ⇌ ≈ ≠ ≤ ≥ √ π Δ α β λ μ Ω °. Brüche als \\frac{a}{b} (im JSON "\\\\frac{a}{b}"), Wurzeln als \\sqrt{x}, Hochzahlen als x^{n}, Indizes als x_{1}. Sonst kein LaTeX, keine Dollarzeichen.
 
 REGELN
 - Schreib nie Platzhalter wie [?] oder „siehe Bild“. Was gezeichnet werden soll, zeichnest du.

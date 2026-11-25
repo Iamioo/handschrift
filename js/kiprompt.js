@@ -18,7 +18,7 @@ INHALT ÜBERNEHMEN
 - Lass weg, was nicht zum Tafelbild gehört: Bedienelemente von Beamer oder Programm, Logos, Foliennummern, Uhrzeit, Spiegelungen, Hände, Schwämme.
 - Schreib nie Platzhalter wie [?], (Grafik), [Skizze], „siehe Bild“ oder Fragezeichen für Dinge, die du nicht darstellen kannst. Alles, was gezeichnet ist (Pfeile, Graphen, Skizzen, Diagramme, Symbole, Markierungen), zeichnest du mit den Formen unten nach, so genau es geht. Vereinfachen ist erlaubt, weglassen nicht.
 - Ist ein Wort schwer lesbar, nimm die wahrscheinlichste Lesart aus dem Zusammenhang.
-- Formeln schreibst du als normalen Text mit Unicode-Zeichen: ² ³ ₂ ₃ · × ± → ⇒ ↔ ≈ ≠ ≤ ≥ √ ° Δ ∞ ∑ ∫ π α β γ λ μ ρ σ φ Ω ⊥ ∥ ∠ ∈ ∅ € §. Brüche als a/b. Kein LaTeX.
+- Formeln schreibst du als normalen Text mit Unicode-Zeichen: ² ³ ₂ ₃ · × ± → ⇒ ↔ ≈ ≠ ≤ ≥ √ ° Δ ∞ ∑ ∫ π α β γ λ μ ρ σ φ Ω ⊥ ∥ ∠ ∈ ∅ € §. Brüche als \\frac{a}{b} (im JSON "\\\\frac{a}{b}"), Wurzeln als \\sqrt{x}, Hochzahlen als x^{n}, Indizes als x_{1}. Sonst kein LaTeX, keine Dollarzeichen.
 
 SEITEN
 - Eine Seite fasst etwa 28 Zeilen mit je etwa 50 Zeichen. Eine Tabellenzeile oder Listenzeile ist eine Zeile, eine Zeichnung mit "hoehe": 50 belegt etwa 10 Zeilen.
@@ -73,6 +73,11 @@ __unterstrichen__   ==mit Textmarker==   ~~durchgestrichen~~   [[im Kasten]]   {
 <rot>farbiger Text</rot>   <markiert:gruen>Textmarker in Grün</markiert>
 Farben für Text und Linien: rot, blau, gruen, orange, lila, pink, braun, grau, tuerkis. Textmarker: gelb, gruen, rosa, blau, orange, lila, grau. Auch "#rrggbb" geht.
 
+MATHE IM TEXT
+Brüche: \\frac{Zähler}{Nenner}, zum Beispiel \\frac{3}{4} oder \\frac{x+1}{2x}. Die App schreibt Zähler über Nenner mit Bruchstrich in eine Zeile.
+Wurzel: \\sqrt{x² + 1}. Hochzahl: x^2, x^{n+1}, 10^{-3}. Index: x_{1}, a_{n}. Statt \\cdot, \\pm, \\le, \\approx, \\pi kannst du auch direkt · ± ≤ ≈ π schreiben.
+Im JSON steht vor frac und sqrt ein doppelter Backslash: "\\frac{1}{2}". Keine Dollarzeichen.
+
 TIPPS
 - Eine Mindmap oder ein Schema mit Kästen und Pfeilen ist eine "zeichnung" mit Rechtecken oder Ellipsen und Pfeilen. Schreib den Text der Kästen in deren "text".
 - Ein einfacher Pfeil mitten im Satz ist das Zeichen → im Text, keine Zeichnung.
@@ -85,3 +90,6 @@ TIPPS
 BEISPIEL
 ${JSON.stringify(KI_EXAMPLE)}
 `;
+
+// Formatbeschreibung samt Mathe-Abschnitt, für andere Prompts (Aufgaben).
+export const KI_FORMAT = KI_PROMPT.slice(KI_PROMPT.indexOf('FORMAT\n'), KI_PROMPT.indexOf('TIPPS\n'));
