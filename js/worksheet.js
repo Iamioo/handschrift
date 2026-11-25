@@ -41,8 +41,10 @@ async function loadPdfJs() {
   if (!pdfjs) {
     // Versionsnummer anhängen, damit Safari keine alte pdf.js aus dem Cache nimmt.
     const v = '?v=' + (window.HS_VERSION || '1');
-    pdfjs = await import(new URL('./vendor/pdfjs/pdf.min.mjs' + v, import.meta.url).href);
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs' + v, import.meta.url).href;
+    const url = (f) => new URL('./vendor/pdfjs/' + f + v, import.meta.url).href;
+    await import(url('hs-polyfills.mjs'));
+    pdfjs = await import(url('pdf-s16.mjs'));
+    pdfjs.GlobalWorkerOptions.workerSrc = url('pdf-s16.worker-hs.mjs');
   }
   return pdfjs;
 }
@@ -72,8 +74,14 @@ export async function loadWorksheetFiles(files, onProgress) {
   const pages = [];
   for (const f of files) {
     onProgress?.(`Lade „${f.name}“ …`);
-    if (isPdf(f)) pages.push(...(await pdfToPages(f, onProgress)));
-    else pages.push(await imageToPage(f));
+    if (isPdf(f)) {
+      try {
+        pages.push(...(await pdfToPages(f, onProgress)));
+      } catch (err) {
+        console.error(err);
+        throw new Error(`Die PDF „${f.name}“ ließ sich nicht öffnen (${err?.name || 'Fehler'}: ${err?.message || err}). Mach notfalls Screenshots der Seiten und lade die stattdessen.`);
+      }
+    } else pages.push(await imageToPage(f));
   }
   return pages;
 }

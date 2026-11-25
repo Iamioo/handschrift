@@ -522,6 +522,7 @@ let sheet = [];          // geladene Seiten des Arbeitsblatts (Hintergründe)
 let sheetReady = false;  // erst nach dem Wiederherstellen aus IndexedDB
 
 $('ws-prompt').textContent = KI_BLATT_PROMPT;
+document.querySelectorAll('.app-version').forEach((el) => { el.textContent = window.HS_VERSION || '?'; });
 
 function openSheet() {
   if (!$('ws-json').value) $('ws-json').value = settings.blattJson || '';
