@@ -1,13 +1,15 @@
 import { loadFonts, saveFonts, loadSettings, saveSettings, newFont, fontToFile, fontFromFile, safeFileName } from './store.js';
 import { LETTERS, EXTRA, PEN_EM, Pad, normalizeGlyph, denormalizeGlyph, drawGlyphThumb, drawSample } from './glyphs.js';
-import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat, setPaperStyle } from './render.js';
+import { layout, paperLines, drawPage, PAGE, DEFAULT_OPTS, setPageFormat, setPaperStyle, setPageSize } from './render.js';
 import { buildPdf } from './pdf.js';
 import { buildGoodnotes } from './formats/goodnotes.js';
 import { buildNotabilityFile, notePackageName } from './formats/notability.js';
 import { canvasBlob } from './formats/zip.js';
 import { makeTestFont } from './testfont.js';
 import { buildTemplatePdf, importFilledTemplate } from './template.js';
-import { layoutScene, parseSceneText, sceneInfo } from './scene.js';
+import { layoutScene, parseSceneText, sceneInfo, layoutWorksheet, parseWorksheetText } from './scene.js';
+import { KI_BLATT_PROMPT, KI_BLATT_EXAMPLE } from './kiblatt.js';
+import { loadWorksheetFiles, saveWorksheet, restoreWorksheet, thumbURL, makeDemoSheet } from './worksheet.js';
 import { KI_PROMPT } from './kiprompt.js';
 import { KI_EXAMPLE } from './kiexample.js';
 
@@ -32,6 +34,7 @@ const settings = loadSettings({
   kiJson: '',
   orientation: 'hoch',
   packs: [],
+  blattJson: '',
   tplMissing: false,
 });
 
@@ -66,6 +69,7 @@ function show(view) {
   if (view === 'capture') startCapture();
   if (view === 'text') openText();
   if (view === 'board') openBoard();
+  if (view === 'sheet') openSheet();
 }
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.view)));
 
@@ -512,6 +516,115 @@ $('ki-go').addEventListener('click', () => {
   show('text');
 });
 
+/* ---------- Arbeitsblatt per KI ---------- */
+
+let sheet = [];          // geladene Seiten des Arbeitsblatts (Hintergründe)
+let sheetReady = false;  // erst nach dem Wiederherstellen aus IndexedDB
+
+$('ws-prompt').textContent = KI_BLATT_PROMPT;
+
+function openSheet() {
+  if (!$('ws-json').value) $('ws-json').value = settings.blattJson || '';
+}
+
+function renderSheetThumbs() {
+  const box = $('ws-thumbs');
+  box.querySelectorAll('img').forEach((im) => URL.revokeObjectURL(im.src));
+  box.innerHTML = '';
+  sheet.forEach((p, i) => {
+    const fig = document.createElement('figure');
+    const im = document.createElement('img');
+    im.src = thumbURL(p);
+    fig.append(im, `Seite ${i + 1}`);
+    box.appendChild(fig);
+  });
+  $('ws-load-status').textContent = sheet.length ? `${sheet.length} ${sheet.length === 1 ? 'Seite' : 'Seiten'} geladen. Schick der KI dieselben Dateien in derselben Reihenfolge.` : 'Noch kein Arbeitsblatt geladen.';
+}
+
+async function setSheet(pages) {
+  sheet = pages;
+  renderSheetThumbs();
+  await saveWorksheet(pages);
+}
+
+restoreWorksheet().then((pages) => {
+  sheet = pages;
+  sheetReady = true;
+  renderSheetThumbs();
+  if (settings.source === 'blatt' && settings.view === 'text') generate(false);
+});
+
+$('ws-files').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  try {
+    const pages = await loadWorksheetFiles(files, (msg) => { $('ws-load-status').textContent = msg; });
+    await setSheet(pages);
+  } catch (err) {
+    console.error(err);
+    $('ws-load-status').textContent = 'Laden fehlgeschlagen: ' + (err.message || err);
+  }
+});
+
+$('ws-clear').addEventListener('click', async () => {
+  await setSheet([]);
+  if (settings.source === 'blatt') { settings.source = 'text'; saveSettings(settings); syncTextControls(); }
+});
+
+$('ws-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(KI_BLATT_PROMPT);
+    $('ws-status').textContent = 'Prompt kopiert. Füge ihn in einen neuen KI-Chat ein und schick danach das Arbeitsblatt.';
+  } catch {
+    $('ws-prompt').closest('details').open = true;
+    const r = document.createRange();
+    r.selectNodeContents($('ws-prompt'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+    $('ws-status').textContent = 'Kopieren ging nicht automatisch. Der Prompt ist markiert, kopiere ihn von Hand.';
+  }
+});
+$('ws-share').addEventListener('click', () => deliver(new Blob([KI_BLATT_PROMPT], { type: 'text/plain' }), 'Handschrift-Arbeitsblatt-Prompt.txt'));
+
+$('ws-paste').addEventListener('click', async () => {
+  try { $('ws-json').value = await navigator.clipboard.readText(); $('ws-status').textContent = ''; } catch {
+    $('ws-status').textContent = 'Kein Zugriff auf die Zwischenablage. Füge den Text mit langem Tippen ins Feld ein.';
+  }
+});
+$('ws-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) $('ws-json').value = await file.text();
+});
+$('ws-example').addEventListener('click', async () => {
+  await setSheet([await makeDemoSheet()]);
+  $('ws-json').value = JSON.stringify(KI_BLATT_EXAMPLE, null, 2);
+  $('ws-status').textContent = 'Beispielblatt und Beispielantwort geladen. Tippe auf „Blatt ausfüllen“.';
+});
+
+$('ws-go').addEventListener('click', () => {
+  let doc;
+  try {
+    doc = parseWorksheetText($('ws-json').value);
+  } catch (err) {
+    $('ws-status').textContent = 'Das klappt so nicht: ' + err.message + ' Kopiere die ganze Antwort der KI oder bitte sie, nur gültiges JSON zu schicken.';
+    return;
+  }
+  if (!sheet.length) {
+    $('ws-status').textContent = 'Lade zuerst das Arbeitsblatt (Schritt 1).';
+    return;
+  }
+  if (dirty && !confirm('Deine Änderungen auf den Seiten gehen verloren. Fortfahren?')) return;
+  settings.blattJson = $('ws-json').value;
+  settings.source = 'blatt';
+  dirty = false;
+  saveSettings(settings);
+  syncTextControls();
+  const n = doc.seiten.reduce((a, s) => a + s.eintraege.length, 0);
+  $('ws-status').textContent = `${n} Einträge auf ${sheet.length} ${sheet.length === 1 ? 'Seite' : 'Seiten'}.`;
+  show('text');
+});
+
 /* ---------- Text & Export ---------- */
 
 let dirty = false;      // true, sobald jemand im Ergebnis radiert oder schreibt
@@ -544,10 +657,13 @@ for (const [id, key, fmt] of controls) {
   });
 }
 function syncTextControls() {
-  const ki = settings.source === 'ki';
+  const ki = settings.source === 'ki' || settings.source === 'blatt';
+  const blatt = settings.source === 'blatt';
   $('t-source').value = settings.source;
   $('t-text-wrap').hidden = ki;
   $('t-ki-info').hidden = !ki;
+  // Beim Arbeitsblatt bestimmt das Blatt Format und Papier.
+  for (const id of ['t-format-wrap', 't-orient-wrap', 't-paper-wrap']) $(id).hidden = blatt;
   $('t-orient').value = settings.orientation;
   $('t-paper').value = settings.paper;
 }
@@ -557,6 +673,12 @@ $('t-source').addEventListener('change', () => {
     settings.source = 'text';
     alert('Es gibt noch keine KI-Datei. Füge sie zuerst unter „Tafelbild“ ein.');
     show('board');
+    return;
+  }
+  if (settings.source === 'blatt' && (!settings.blattJson || !sheet.length)) {
+    settings.source = 'text';
+    alert('Lade zuerst unter „Arbeitsblatt“ ein Blatt und die Antwort der KI.');
+    show('sheet');
     return;
   }
   syncTextControls();
@@ -620,7 +742,30 @@ function generate(byUser) {
   }
   let result;
   current = null;
-  if (settings.source === 'ki') {
+  if (settings.source === 'blatt') {
+    if (!sheetReady) return; // wird nach dem Wiederherstellen erneut aufgerufen
+    if (!sheet.length) {
+      editor.setDoc([], []);
+      warn.hidden = false;
+      warn.textContent = 'Das Arbeitsblatt fehlt. Lade es unter „Arbeitsblatt“ neu.';
+      return;
+    }
+    try {
+      const doc = parseWorksheetText(settings.blattJson);
+      const r0 = Math.min(2, Math.max(0.5, sheet[0].ph / sheet[0].pw));
+      setPageSize(595.28, Math.round(595.28 * r0 * 100) / 100);
+      result = layoutWorksheet(doc, f, settings, sheet);
+      result.title = doc.titel || 'Arbeitsblatt';
+      result.noPaper = true;
+      $('t-ki-info').textContent = `Arbeitsblatt „${result.title}“: ${result.pages.length} ${result.pages.length === 1 ? 'Seite' : 'Seiten'}. Ändern kannst du alles unter „Arbeitsblatt“.`;
+    } catch (err) {
+      console.error(err);
+      editor.setDoc([], []);
+      warn.hidden = false;
+      warn.textContent = 'KI-Datei fehlerhaft: ' + (err.message || err);
+      return;
+    }
+  } else if (settings.source === 'ki') {
     try {
       const doc = parseSceneText(settings.kiJson);
       result = layoutScene(doc, f, settings);
@@ -637,7 +782,7 @@ function generate(byUser) {
     result = layout(settings.text, f, settings);
   }
   const { pages, missing } = result;
-  const lines = paperLines(settings.paper, settings);
+  const lines = result.noPaper ? [] : paperLines(settings.paper, settings);
   current = { pages, lines, title: result.title };
   editor.setDoc(pages, lines);
   warn.hidden = !missing.length;
@@ -653,7 +798,7 @@ $('ed-undo').addEventListener('click', () => editor.undo());
 $('ed-delete').addEventListener('click', () => editor.deleteSelection());
 
 function exportTitle() {
-  if (settings.source === 'ki' && current?.title) return String(current.title).trim().slice(0, 40);
+  if ((settings.source === 'ki' || settings.source === 'blatt') && current?.title) return String(current.title).trim().slice(0, 40);
   return (settings.text.split('\n').find((l) => l.trim()) || 'Handschrift').trim().slice(0, 40);
 }
 
@@ -677,7 +822,10 @@ async function exportAs(kind) {
   const base = safeFileName(title);
   try {
     if (kind === 'goodnotes') {
-      const paperPdf = buildPdf([{ strokes: [] }], current.lines, { title: 'Papier', scale: GOODNOTES_PDF_SCALE });
+      // Mit Hintergrund (Arbeitsblatt) braucht jede Seite ihr eigenes Papier.
+      const paperPdf = current.pages.some((p) => p.bg)
+        ? current.pages.map((p) => buildPdf([{ strokes: [], bg: p.bg }], current.lines, { title: 'Papier', scale: GOODNOTES_PDF_SCALE }))
+        : buildPdf([{ strokes: [] }], current.lines, { title: 'Papier', scale: GOODNOTES_PDF_SCALE });
       const bytes = buildGoodnotes(current.pages, {
         title,
         paperPdf,
@@ -686,7 +834,7 @@ async function exportAs(kind) {
       });
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.goodnotes`);
     } else if (kind === 'notability') {
-      const pdfBytes = buildPdf(current.pages.map(() => ({ strokes: [] })), current.lines, { title: 'Papier' });
+      const pdfBytes = buildPdf(current.pages.map((p) => ({ strokes: [], bg: p.bg })), current.lines, { title: 'Papier' });
       const bytes = await buildNotabilityFile(current.pages, { name: title, thumbnailPng: await thumbnail('image/png'), pdfBytes });
       await deliver(new Blob([bytes], { type: 'application/octet-stream' }), `${notePackageName(title)}.note`);
     } else {
@@ -705,4 +853,4 @@ $('ex-pdf').addEventListener('click', () => exportAs('flat'));
 
 /* ---------- Start ---------- */
 
-show(['fonts', 'capture', 'board', 'text'].includes(settings.view) ? settings.view : 'capture');
+show(['fonts', 'capture', 'board', 'sheet', 'text'].includes(settings.view) ? settings.view : 'capture');

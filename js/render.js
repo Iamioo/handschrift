@@ -9,6 +9,9 @@ export const PAGE_FORMATS = {
   letter: { w: 612, h: 792, label: 'US Letter' },
 };
 export const PAGE = { w: PAGE_FORMATS.goodnotes.w, h: PAGE_FORMATS.goodnotes.h };
+// Freie Seitengröße, z. B. für Arbeitsblätter im Seitenverhältnis des Fotos.
+export function setPageSize(w, h) { PAGE.w = w; PAGE.h = h; }
+
 // orientation: 'hoch' oder 'quer'. Querformat tauscht Breite und Höhe.
 export function setPageFormat(key, orientation = 'hoch') {
   const f = PAGE_FORMATS[key] || PAGE_FORMATS.goodnotes;
@@ -206,6 +209,11 @@ export function setPaperStyle(key, width) {
 export function drawPage(ctx, page, lines, scale) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, PAGE.w * scale, PAGE.h * scale);
+  // Hintergrundbild (Arbeitsblatt): page.bg = { img, rect: [x, y, w, h] } in Punkten
+  if (page.bg?.img) {
+    const [x, y, w, h] = page.bg.rect;
+    ctx.drawImage(page.bg.img, x * scale, y * scale, w * scale, h * scale);
+  }
   ctx.strokeStyle = PAPER.color;
   ctx.lineWidth = Math.max(PAPER.width * scale, 0.5);
   ctx.beginPath();

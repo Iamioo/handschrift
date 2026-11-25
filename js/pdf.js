@@ -73,12 +73,28 @@ export function buildPdf(pages, lines, { editable = false, title = 'Handschrift'
   const now = pdfDate();
   const paper = paperOps(lines, H);
   const fontId = pages.some((p) => p.ops) ? add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>') : 0;
-  const resources = fontId ? `<< /Font << /F1 ${fontId} 0 R >> >>` : '<< >>';
+  const fontRes = fontId ? `/Font << /F1 ${fontId} 0 R >>` : '';
+  // JPEG-Hintergründe (Arbeitsblätter) als Bild-XObject, jedes Bild nur einmal.
+  const imgIds = new Map();
+  const imageId = (bg) => {
+    if (!imgIds.has(bg.jpeg)) {
+      const bin = bytesToBinary(bg.jpeg);
+      imgIds.set(bg.jpeg, add(`<< /Type /XObject /Subtype /Image /Width ${bg.pw} /Height ${bg.ph} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bin.length} >>\nstream\n${bin}\nendstream`));
+    }
+    return imgIds.get(bg.jpeg);
+  };
 
   pages.forEach((page, pi) => {
     const pageId = add(null);
     pageIds.push(pageId);
-    let content = paper + (page.ops || '');
+    let bgOps = '', xobj = '';
+    if (page.bg?.jpeg) {
+      const [x, y, w, h] = page.bg.rect;
+      xobj = `/XObject << /Im0 ${imageId(page.bg)} 0 R >>`;
+      bgOps = `q ${n(w)} 0 0 ${n(h)} ${n(x)} ${n(H - y - h)} cm /Im0 Do Q\n`;
+    }
+    const resources = `<< ${fontRes} ${xobj} >>`;
+    let content = bgOps + paper + (page.ops || '');
     const wrap = (c) => (scale === 1 ? c : `q ${sc} 0 0 ${sc} 0 0 cm
 ${c}Q
 `);
@@ -137,4 +153,10 @@ ${c}Q
   const bytes = new Uint8Array(out.length);
   for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 0xff;
   return bytes;
+}
+
+function bytesToBinary(u8) {
+  let out = '';
+  for (let i = 0; i < u8.length; i += 0x8000) out += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return out;
 }

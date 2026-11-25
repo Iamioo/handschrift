@@ -131,8 +131,9 @@ export function buildGoodnotes(pages, { title, paperPdf, paperName, thumbnailJpg
   let noteSeq = 1500000;
   const now = () => Date.now() + (seq % 1000) / 1000;
   const docId = uuid();
-  const attId = uuid();
-  const templateId = uuid();
+  // Normal teilen sich alle Seiten ein Papier. Bei Arbeitsblättern bekommt jede Seite ein eigenes
+  // (paperPdf ist dann eine Liste mit einer PDF pro Seite).
+  const papers = (Array.isArray(paperPdf) ? paperPdf : [paperPdf]).map((pdf) => ({ pdf, attId: uuid(), templateId: uuid() }));
   const ids = pages.map(pageIds);
 
   // notes/<id>: pro Strich ein Kopf und ein Inhalt
@@ -172,26 +173,28 @@ export function buildGoodnotes(pages, { title, paperPdf, paperName, thumbnailJpg
     [19, 'm', [[2, 'm', version()]]],
     [20, 'v', SCHEMA],
   ]);
-  event(attId, 6, [
-    [1, 's', attId], [2, 's', attId], [5, 'v', paperPdf.length], [6, 's', docId],
-    [10, 'd', now()], [11, 's', uuid()], [12, 'm', [[1, 'v', 1], [2, 'v', 1]]],
-    [14, 'v', device], [15, 'v', seq++], [16, 'v', SCHEMA],
-  ]);
-  event(templateId, 2, [
-    [1, 's', docId], [2, 's', templateId], [4, 's', attId], [5, 'v', 1], [6, 'v', 1],
-    [8, 'm', [[1, 'f', PAGE.w], [2, 'f', PAGE.h]]],
-    [9, 's', paperName],
-    [10, 'd', now()], [11, 's', uuid()],
-    [13, 'm', [[1, 'v', 1], [2, 'm', version()]]],
-    [15, 'v', device], [16, 'v', seq++],
-    [17, 'm', [[1, 'v', 1], [2, 'm', version()]]],
-    [19, 'm', [[2, 'm', version()]]],
-    [21, 'v', SCHEMA],
-  ]);
+  for (const pp of papers) {
+    event(pp.attId, 6, [
+      [1, 's', pp.attId], [2, 's', pp.attId], [5, 'v', pp.pdf.length], [6, 's', docId],
+      [10, 'd', now()], [11, 's', uuid()], [12, 'm', [[1, 'v', 1], [2, 'v', 1]]],
+      [14, 'v', device], [15, 'v', seq++], [16, 'v', SCHEMA],
+    ]);
+    event(pp.templateId, 2, [
+      [1, 's', docId], [2, 's', pp.templateId], [4, 's', pp.attId], [5, 'v', 1], [6, 'v', 1],
+      [8, 'm', [[1, 'f', PAGE.w], [2, 'f', PAGE.h]]],
+      [9, 's', paperName],
+      [10, 'd', now()], [11, 's', uuid()],
+      [13, 'm', [[1, 'v', 1], [2, 'm', version()]]],
+      [15, 'v', device], [16, 'v', seq++],
+      [17, 'm', [[1, 'v', 1], [2, 'm', version()]]],
+      [19, 'm', [[2, 'm', version()]]],
+      [21, 'v', SCHEMA],
+    ]);
+  }
   ids.forEach(({ page, notes }, i) => {
     event(page, 54, [
       [1, 's', docId], [2, 's', page],
-      [3, 'm', [[1, 's', templateId], [2, 'm', version()]]],
+      [3, 'm', [[1, 's', papers[Math.min(i, papers.length - 1)].templateId], [2, 'm', version()]]],
       [4, 'm', [[1, 's', orderKey(i + 1)], [2, 'm', version()]]],
       [10, 'd', now()], [11, 's', uuid()], [13, 'v', device], [14, 'v', seq++], [15, 'v', SCHEMA],
       [17, 'm', [[1, 'm', [[2, 'm', [[1, 'm', color('#dddddd')], [2, 'm', color('#ffffff')]]]]], [2, 'm', version()]]],
@@ -211,14 +214,14 @@ export function buildGoodnotes(pages, { title, paperPdf, paperName, thumbnailJpg
 
   const files = [
     { name: 'document.info.pb', data: new Uint8Array(0) },
-    { name: 'index.search.pb', data: delimited(msg([[1, 's', attId], [2, 's', `search/${attId}`], [3, 'v', 1]])) },
+    { name: 'index.search.pb', data: concat(papers.map((pp) => delimited(msg([[1, 's', pp.attId], [2, 's', `search/${pp.attId}`], [3, 'v', 1]])))) },
     { name: 'index.notes.pb', data: concat(ids.map(({ notes }) => delimited(msg([[1, 's', notes], [2, 's', `notes/${notes}`]])))) },
-    { name: `search/${attId}`, data: delimited(msg([[2, 'v', 1], [3, 's', '']])) },
+    ...papers.map((pp) => ({ name: `search/${pp.attId}`, data: delimited(msg([[2, 'v', 1], [3, 's', '']])) })),
     ...ids.map(({ notes }, i) => ({ name: `notes/${notes}`, data: noteFiles[i] })),
     { name: 'index.events.pb', data: concat(ev) },
     { name: 'thumbnail.jpg', data: thumbnailJpg },
-    { name: 'index.attachments.pb', data: delimited(msg([[1, 's', attId], [2, 's', `attachments/${attId}`]])) },
-    { name: `attachments/${attId}`, data: paperPdf },
+    { name: 'index.attachments.pb', data: concat(papers.map((pp) => delimited(msg([[1, 's', pp.attId], [2, 's', `attachments/${pp.attId}`]])))) },
+    ...papers.map((pp) => ({ name: `attachments/${pp.attId}`, data: pp.pdf })),
     { name: 'schema.pb', data: msg([[1, 'v', SCHEMA]]) },
   ];
   return makeZip(files);

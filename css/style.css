@@ -149,7 +149,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .empty-note { color: var(--muted); padding: 40px; text-align: center; }
 
 /* Tafelbild */
-#ki-json { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+#ki-json, .ki-json { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
 .prompt-box { margin-top: 10px; }
 .prompt-box summary { cursor: pointer; color: var(--muted, #666); }
 .prompt-box pre { white-space: pre-wrap; font-size: 12px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
@@ -160,3 +160,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .pack.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .pack input { margin-right: 6px; }
 .pack .chars { font-size: 15px; letter-spacing: 2px; color: var(--muted); word-break: break-all; max-width: 260px; }
+
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.thumbs figure { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.thumbs img { display: block; height: 120px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }

@@ -578,8 +578,14 @@ function buildDrawing(ctx, el, x0, x1) {
   const n = Math.max(1, Math.ceil((H + 0.12 * ctx.lh) / ctx.lh));
   const ox = el.ausrichtung === 'mitte' ? x0 + (avail - bw) / 2 : el.ausrichtung === 'rechts' ? x1 - bw : x0;
   const oy = bandTop(ctx) + (n * ctx.lh - H) / 2;
-  const P = ([x, y]) => [ox + (Number(x) || 0) * k, oy + (Number(y) || 0) * k];
   const out = { n, s: [], u: [], keep: false };
+  drawShapes(ctx, el, ox, oy, k, hoehe, out);
+  return [out];
+}
+
+// Zeichnet die Formen einer Zeichnung. (ox, oy) ist die linke obere Ecke in Punkten, k Punkte pro Einheit.
+export function drawShapes(ctx, el, ox, oy, k, hoehe, out) {
+  const P = ([x, y]) => [ox + (Number(x) || 0) * k, oy + (Number(y) || 0) * k];
   const baseColor = ink(ctx, el.farbe) || ctx.o.color;
 
   for (const f of el.formen || el.shapes || []) {
@@ -662,7 +668,6 @@ function buildDrawing(ctx, el, x0, x1) {
       drawLabel(ctx, out, f, cx, cy, c, k);
     }
   }
-  return [out];
 }
 
 function pointAlong(path, f) {
@@ -1108,22 +1113,32 @@ function splitTall(ctx, un) {
   return parts;
 }
 
-export function layoutScene(doc, font, o) {
-  const size = o.size;
-  const lh = size * o.lineHeight;
-  const left = o.margin, right = PAGE.w - o.margin;
-  const first = o.margin + size, bottom = PAGE.h - o.margin;
+export function makeCtx(font, o, size, lh) {
   const missing = new Set();
   const rnd = mulberry32(o.seed);
   let gid = 0;
-  const ctx = {
+  return {
     font, o, rnd, size, lh, missing,
     penW: (font.penEm || PEN_EM) * o.penScale * size,
     glyph: makeGlyphMaker(font, o, rnd, missing),
     gid: () => 'k' + gid++,
     span: 0,
-    linesPerPage: Math.max(1, Math.floor((bottom - first) / lh) + 1),
+    linesPerPage: 30,
   };
+}
+
+// Gleicher Zufall und gleiche Strichgruppen, aber andere Schriftgröße (Arbeitsblätter).
+export function resizeCtx(ctx, size, lh) {
+  return Object.assign(Object.create(ctx), { size, lh, penW: (ctx.font.penEm || PEN_EM) * ctx.o.penScale * size });
+}
+
+export function layoutScene(doc, font, o) {
+  const size = o.size;
+  const lh = size * o.lineHeight;
+  const left = o.margin, right = PAGE.w - o.margin;
+  const first = o.margin + size, bottom = PAGE.h - o.margin;
+  const ctx = makeCtx(font, o, size, lh);
+  ctx.linesPerPage = Math.max(1, Math.floor((bottom - first) / lh) + 1);
 
   const pages = [];
   let page, y;
@@ -1143,5 +1158,116 @@ export function layoutScene(doc, font, o) {
     });
   }
   for (const p of pages) { p.strokes = p.under.concat(p.strokes); delete p.under; }
-  return { pages, missing: [...missing] };
+  return { pages, missing: [...ctx.missing] };
+}
+
+/* ---------- Arbeitsblätter ---------- */
+
+// Legt ein Hintergrundbild so groß wie möglich auf die Seite (ohne Verzerren).
+export function fitRect(pw, ph) {
+  const s = Math.min(PAGE.w / pw, PAGE.h / ph);
+  const w = pw * s, h = ph * s;
+  return [(PAGE.w - w) / 2, (PAGE.h - h) / 2, w, h];
+}
+
+export function parseWorksheetText(raw) {
+  const doc = parseSceneText(raw);
+  for (const s of doc.seiten) s.eintraege = s.eintraege || s.elemente || s.antworten || [];
+  return doc;
+}
+
+// Schreibt die Antworten der KI auf die Seiten des Arbeitsblatts.
+// Positionen sind Prozent des Blatts: x von links, y von oben. bgs: geladene Seiten (Bilder).
+export function layoutWorksheet(doc, font, o, bgs) {
+  const pages = bgs.map((bg) => ({ strokes: [], under: [], bg: { ...bg, rect: fitRect(bg.pw, bg.ph) } }));
+  const base = makeCtx(font, o, o.size, o.size * o.lineHeight);
+  const blank = () => ({ strokes: [], under: [], bg: null });
+
+  doc.seiten.forEach((seite, si) => {
+    const idx = Math.max(0, Math.round(num(seite.bild ?? seite.seite, si + 1)) - 1);
+    while (pages.length <= idx) pages.push(blank());
+    const page = pages[idx];
+    const R = page.bg?.rect || [0, 0, PAGE.w, PAGE.h];
+    const X = (v) => R[0] + (num(v, 0) / 100) * R[2];
+    const Y = (v) => R[1] + (num(v, 0) / 100) * R[3];
+    const BW = (v) => (num(v, 0) / 100) * R[2];
+    const BH = (v) => (num(v, 0) / 100) * R[3];
+    const defGap = BH(num(seite.zeilenabstand ?? doc.zeilenabstand, 2.6));
+    const sheetSize = Math.min(40, Math.max(6, defGap * 0.72));
+    const sc = resizeCtx(base, sheetSize, defGap);
+    const S = page.strokes, U = page.under;
+    const pen = (e) => sc.penW * 0.9 * (num(e.dicke, 1));
+    const col = (e, def) => ink(sc, e.farbe) || def || o.color;
+
+    for (const e0 of seite.eintraege) {
+      if (!e0 || typeof e0 !== 'object') continue;
+      const e = e0;
+      const art = String(e.art || e.typ || 'text').toLowerCase();
+      const g = sc.gid();
+      if (['text', 'antwort', 'luecke', 'lücke', 'zeilen', 'feld'].includes(art)) {
+        const zl = Array.isArray(e.zeilen) ? e.zeilen.map((v) => num(v, NaN)).filter(isFinite) : [];
+        // Abstand der Schreiblinien: angegeben, aus "zeilen" abgelesen oder Standard der Seite.
+        const gap = e.zeilenabstand != null ? BH(e.zeilenabstand) : zl.length > 1 ? Math.abs(BH(zl[1] - zl[0])) : defGap;
+        const size = Math.min(48, Math.max(5, gap * 0.72 * num(e.groesse, 1)));
+        const c2 = resizeCtx(base, size, gap);
+        const x0 = X(e.x);
+        const x1 = e.b != null ? x0 + BW(e.b) : R[0] + R[2] * 0.96;
+        const units = textUnits(c2, e.text, x0, Math.max(x1, x0 + size * 2), { align: e.ausrichtung, color: e.farbe, marker: e.markierfarbe });
+        const lines = Array.isArray(e.zeilen) ? e.zeilen.map(Y) : null;
+        let y = Y(e.y);
+        units.forEach((un, i) => {
+          if (lines && lines[i] != null) y = lines[i];
+          else if (i > 0) y += (lines && lines.length > 1 ? lines[lines.length - 1] - lines[lines.length - 2] : gap);
+          S.push(...shift(un.s, 0, y));
+          U.push(...shift(un.u, 0, y));
+        });
+      } else if (art === 'kreuz' || art === 'ankreuzen' || art === 'x') {
+        const r = e.r != null ? BW(e.r) : sheetSize * 0.32;
+        const cx = X(e.x), cy = Y(e.y);
+        S.push({ pts: wobbly(sc, [[cx - r, cy - r], [cx + r, cy + r]], { amp: 0.2 }), w: pen(e), c: col(e), g });
+        S.push({ pts: wobbly(sc, [[cx + r, cy - r * 1.05], [cx - r * 0.95, cy + r]], { amp: 0.2 }), w: pen(e), c: col(e), g });
+      } else if (art === 'haken') {
+        const r = e.r != null ? BW(e.r) : sheetSize * 0.38;
+        const cx = X(e.x), cy = Y(e.y);
+        S.push({ pts: wobbly(sc, [[cx - r, cy], [cx - r * 0.3, cy + r * 0.7], [cx + r, cy - r]], { amp: 0.2 }), w: pen(e), c: col(e), g });
+      } else if (art === 'einkreisen' || art === 'kreis' || art === 'ellipse') {
+        const x = X(e.x), y = Y(e.y), w = BW(e.b ?? 5), h = BH(e.h ?? 2.5);
+        const pad = sheetSize * 0.2;
+        S.push({ pts: ellipsePts(sc, x + w / 2, y + h / 2, w / 2 + pad, h / 2 + pad), w: pen(e), c: col(e), g });
+      } else if (art === 'kasten' || art === 'rahmen' || art === 'einrahmen') {
+        const x = X(e.x), y = Y(e.y), w = BW(e.b ?? 5), h = BH(e.h ?? 2.5);
+        const pad = sheetSize * 0.15;
+        S.push({ pts: rectPts(sc, x - pad, y - pad, x + w + pad, y + h + pad), w: pen(e), c: col(e), g });
+      } else if (art === 'unterstreichen' || art === 'unterstrichen') {
+        const x = X(e.x), y = Y(e.y) + sheetSize * 0.12, w = BW(e.b ?? 10);
+        S.push({ pts: wobbly(sc, [[x, y], [x + w, y]]), w: pen(e), c: col(e), g });
+        if (e.doppelt) S.push({ pts: wobbly(sc, [[x, y + sheetSize * 0.18], [x + w, y + sheetSize * 0.18]]), w: pen(e), c: col(e), g });
+      } else if (art === 'durchstreichen' || art === 'durchgestrichen') {
+        const x = X(e.x), y = Y(e.y) - sheetSize * 0.25, w = BW(e.b ?? 10);
+        S.push({ pts: wobbly(sc, [[x, y], [x + w, y - sheetSize * 0.05]]), w: pen(e), c: col(e), g });
+      } else if (art === 'markieren' || art === 'markierung' || art === 'textmarker') {
+        const x = X(e.x), y = Y(e.y), w = BW(e.b ?? 10), h = BH(e.h ?? 2);
+        U.push(...hatch(sc, y, y + h, () => [x - 1, x + w + 1], marker(e.farbe) || MARKER.gelb, g));
+      } else if (art === 'linie' || art === 'pfeil' || art === 'verbinden') {
+        const pts0 = e.punkte || (e.von && e.nach ? [e.von, e.nach] : null);
+        if (!Array.isArray(pts0) || pts0.length < 2) continue;
+        let pts = pts0.map(([a, b]) => [X(a), Y(b)]);
+        if (e.bogen && pts.length === 2) pts = smooth(bendPath(pts[0], pts[1], num(e.bogen, 0)));
+        const st = wobbly(sc, pts);
+        if (e.gestrichelt) for (const d of dashes(st, sheetSize * 0.45, sheetSize * 0.3)) S.push({ pts: d, w: pen(e), c: col(e), g });
+        else S.push({ pts: st, w: pen(e), c: col(e), g });
+        const mode = e.pfeil === true || (art === 'pfeil' && e.pfeil === undefined) ? 'ende' : e.pfeil;
+        if (mode === 'ende' || mode === 'beide') S.push({ pts: arrowHead(sc, pts[pts.length - 1], pts[Math.max(0, pts.length - 3)], 0.8), w: pen(e), c: col(e), g });
+        if (mode === 'anfang' || mode === 'beide') S.push({ pts: arrowHead(sc, pts[0], pts[Math.min(pts.length - 1, 2)], 0.8), w: pen(e), c: col(e), g });
+      } else if (art === 'zeichnung' || art === 'skizze') {
+        // Innerhalb der Zeichnung zählen x und y in Prozent der Blattbreite ab der Ecke (x, y).
+        const k = R[2] / 100;
+        const out = { s: [], u: [] };
+        drawShapes(sc, e, X(e.x), Y(e.y), k, (BH(e.h ?? 20)) / k, out);
+        S.push(...out.s); U.push(...out.u);
+      }
+    }
+  });
+  for (const p of pages) { p.strokes = p.under.concat(p.strokes); delete p.under; }
+  return { pages, missing: [...base.missing] };
 }

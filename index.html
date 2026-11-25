@@ -10,13 +10,13 @@
   <title>Handschrift</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=2026-11-24d">
+  <link rel="stylesheet" href="css/style.css?v=2026-11-25a">
   <script>
     // Versionsnummer bei jeder Änderung an JS- oder CSS-Dateien erhöhen (auch oben beim Stylesheet).
     // Safari hält Dateien sonst bis zu zehn Minuten im Cache und mischt alte und neue Skripte.
-    window.HS_VERSION = '2026-11-24d';
+    window.HS_VERSION = '2026-11-25a';
     (() => {
-      const files = ['app', 'store', 'pdf', 'glyphs', 'render', 'template', 'editor', 'testfont', 'scene', 'symbols', 'kiprompt', 'kiexample', 'formula', 'charsets',
+      const files = ['app', 'store', 'pdf', 'glyphs', 'render', 'template', 'editor', 'testfont', 'scene', 'symbols', 'kiprompt', 'kiexample', 'formula', 'charsets', 'worksheet', 'kiblatt',
         'formats/goodnotes', 'formats/zip', 'formats/bplist', 'formats/md5', 'formats/readers', 'formats/notability'];
       const imports = {};
       for (const f of files) {
@@ -37,6 +37,7 @@
       <button class="tab" data-view="fonts">Schriften</button>
       <button class="tab" data-view="capture">Alphabet schreiben</button>
       <button class="tab" data-view="board">Tafelbild</button>
+      <button class="tab" data-view="sheet">Arbeitsblatt</button>
       <button class="tab" data-view="text">Text &amp; Export</button>
     </nav>
   </header>
@@ -169,6 +170,57 @@
       </div>
     </section>
 
+    <!-- Arbeitsblatt per KI -->
+    <section id="view-sheet" class="view">
+      <div class="panel">
+        <h2>Arbeitsblatt ausfüllen</h2>
+        <p class="muted">Eine KI löst die Aufgaben auf deinem Arbeitsblatt und sagt, wo die Antworten hinkommen. Die App schreibt sie in deiner Handschrift direkt aufs Blatt: Text auf Linien und in Lücken, Kreuze, Einkreisen, Verbindungslinien, Markierungen und Skizzen.</p>
+        <ol class="muted steps">
+          <li>Arbeitsblatt hier laden: Fotos, Screenshots oder eine PDF.</li>
+          <li>Prompt kopieren und in einen neuen Chat mit einer KI einfügen (ChatGPT, Claude, Gemini).</li>
+          <li>Dieselben Bilder oder dieselbe PDF in denselben Chat schicken, in derselben Reihenfolge.</li>
+          <li>Die Antwort der KI hier einfügen und „Blatt ausfüllen“ tippen. Unter „Text &amp; Export“ kannst du danach nachbessern und exportieren.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <h2>1. Arbeitsblatt laden</h2>
+        <div class="row">
+          <label class="button primary">Fotos oder PDF wählen
+            <input id="ws-files" type="file" accept="image/*,application/pdf,.pdf" multiple hidden>
+          </label>
+          <button id="ws-clear">Blatt entfernen</button>
+        </div>
+        <p id="ws-load-status" class="muted small"></p>
+        <div id="ws-thumbs" class="thumbs"></div>
+      </div>
+      <div class="panel">
+        <h2>2. Prompt für die KI</h2>
+        <div class="row">
+          <button id="ws-copy" class="primary">Prompt kopieren</button>
+          <button id="ws-share">Prompt als Datei</button>
+        </div>
+        <details class="prompt-box">
+          <summary>Prompt ansehen</summary>
+          <pre id="ws-prompt"></pre>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>3. Antwort der KI</h2>
+        <textarea id="ws-json" class="ki-json" rows="10" spellcheck="false" placeholder="Hier die Antwort der KI einfügen. Begleittext und ```json stören nicht."></textarea>
+        <div class="row">
+          <button id="ws-paste">Aus Zwischenablage einfügen</button>
+          <label class="button">Datei laden
+            <input id="ws-file" type="file" accept=".json,.txt,application/json,text/plain" hidden>
+          </label>
+          <button id="ws-example">Beispiel laden</button>
+        </div>
+        <div class="row">
+          <button id="ws-go" class="primary">Blatt ausfüllen</button>
+        </div>
+        <p id="ws-status" class="muted small"></p>
+      </div>
+    </section>
+
     <!-- Text & Export -->
     <section id="view-text" class="view">
       <div class="text-layout">
@@ -180,20 +232,21 @@
             <select id="t-source">
               <option value="text">Eingetippter Text</option>
               <option value="ki">Tafelbild (KI-Datei)</option>
+              <option value="blatt">Arbeitsblatt (KI-Datei)</option>
             </select>
           </label>
           <label id="t-text-wrap">Text
             <textarea id="t-text" rows="7"></textarea>
           </label>
           <p id="t-ki-info" class="muted small" hidden></p>
-          <label>Seitenformat
+          <label id="t-format-wrap">Seitenformat
             <select id="t-format">
               <option value="goodnotes">GoodNotes-Standard</option>
               <option value="a4">A4</option>
               <option value="letter">US Letter</option>
             </select>
           </label>
-          <label>Ausrichtung
+          <label id="t-orient-wrap">Ausrichtung
             <select id="t-orient">
               <option value="hoch">Hochformat</option>
               <option value="quer">Querformat</option>
@@ -219,7 +272,7 @@
           </label>
           <div class="row">
             <label class="inline">Farbe <input type="color" id="t-color"></label>
-            <label class="inline">Papier
+            <label class="inline" id="t-paper-wrap">Papier
               <select id="t-paper">
                 <option value="blank">Blanko</option>
                 <option value="lined">Liniert</option>
