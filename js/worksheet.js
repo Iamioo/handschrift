@@ -33,7 +33,10 @@ async function imageToPage(file) {
   const g = c.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   g.drawImage(src, 0, 0, c.width, c.height);
-  return fromCanvas(c);
+  src.close?.();
+  const p = await fromCanvas(c);
+  try { p.img = await createImageBitmap(p.blob); c.width = 0; c.height = 0; } catch { /* Zeichenfläche behalten */ }
+  return p;
 }
 
 let pdfjs = null;
@@ -49,22 +52,62 @@ async function loadPdfJs() {
   return pdfjs;
 }
 
+const dir = (d) => new URL('./vendor/pdfjs/' + d + '/', import.meta.url).href;
+
+function withTimeout(promise, ms, msg) {
+  let t;
+  return Promise.race([promise, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
+}
+
+// Eine PDF-Seite in eine Zeichenfläche der Breite width zeichnen.
+async function renderPdfPage(page, width) {
+  const vp0 = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: width / vp0.width });
+  const c = document.createElement('canvas');
+  c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  const task = page.render({ canvasContext: g, viewport: vp });
+  try {
+    await withTimeout(task.promise, 30000, 'Zeit überschritten');
+  } catch (e) {
+    task.cancel?.();
+    c.width = 0; c.height = 0;
+    throw e;
+  }
+  return c;
+}
+
 async function pdfToPages(file, onProgress) {
   const lib = await loadPdfJs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const loading = lib.getDocument({
+    data: new Uint8Array(await file.arrayBuffer()),
+    wasmUrl: dir('wasm'),
+    standardFontDataUrl: dir('standard_fonts'),
+    iccUrl: dir('iccs'),
+    isEvalSupported: false,
+  });
+  const doc = await loading.promise;
   const out = [];
   for (let i = 1; i <= doc.numPages; i++) {
     onProgress?.(`PDF-Seite ${i} von ${doc.numPages} …`);
     const page = await doc.getPage(i);
-    const vp0 = page.getViewport({ scale: 1 });
-    const vp = page.getViewport({ scale: MAX_W / vp0.width });
-    const c = document.createElement('canvas');
-    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
-    const g = c.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    await page.render({ canvasContext: g, viewport: vp }).promise;
-    out.push(await fromCanvas(c));
+    let c;
+    // Ältere iPads haben wenig Speicher für Zeichenflächen: notfalls kleiner zeichnen.
+    for (const w of [MAX_W, 1100]) {
+      try { c = await renderPdfPage(page, w); break; } catch (e) {
+        console.warn('Seite', i, 'Breite', w, e);
+        if (w === 1100) throw new Error(`Seite ${i} ließ sich nicht zeichnen (${e.message})`);
+        onProgress?.(`PDF-Seite ${i} von ${doc.numPages}, zweiter Versuch …`);
+      }
+    }
+    const p = await fromCanvas(c);
+    // Zeichenfläche freigeben und für die Anzeige ein Bild aus dem JPEG nehmen (spart Speicher).
+    try { p.img = await createImageBitmap(p.blob); c.width = 0; c.height = 0; } catch { /* Zeichenfläche behalten */ }
+    page.cleanup();
+    out.push(p);
   }
+  loading.destroy();
   return out;
 }
 
