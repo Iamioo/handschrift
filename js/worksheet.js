@@ -39,8 +39,10 @@ async function imageToPage(file) {
 let pdfjs = null;
 async function loadPdfJs() {
   if (!pdfjs) {
-    pdfjs = await import('./vendor/pdfjs/pdf.min.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+    // Versionsnummer anhängen, damit Safari keine alte pdf.js aus dem Cache nimmt.
+    const v = '?v=' + (window.HS_VERSION || '1');
+    pdfjs = await import(new URL('./vendor/pdfjs/pdf.min.mjs' + v, import.meta.url).href);
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs' + v, import.meta.url).href;
   }
   return pdfjs;
 }
