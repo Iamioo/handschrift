@@ -35,7 +35,7 @@ async function imageToPage(file) {
   g.drawImage(src, 0, 0, c.width, c.height);
   src.close?.();
   const p = await fromCanvas(c);
-  try { p.img = await createImageBitmap(p.blob); c.width = 0; c.height = 0; } catch { /* Zeichenfläche behalten */ }
+  try { p.img = await loadImg(p.blob); c.width = 0; c.height = 0; } catch { /* Zeichenfläche behalten */ }
   return p;
 }
 
@@ -87,28 +87,46 @@ async function pdfToPages(file, onProgress) {
     iccUrl: dir('iccs'),
     isEvalSupported: false,
   });
-  const doc = await loading.promise;
+  const doc = await withTimeout(loading.promise, 30000, 'PDF öffnen dauerte zu lange');
   const out = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    onProgress?.(`PDF-Seite ${i} von ${doc.numPages} …`);
-    const page = await doc.getPage(i);
-    let c;
-    // Ältere iPads haben wenig Speicher für Zeichenflächen: notfalls kleiner zeichnen.
-    for (const w of [MAX_W, 1100]) {
-      try { c = await renderPdfPage(page, w); break; } catch (e) {
-        console.warn('Seite', i, 'Breite', w, e);
-        if (w === 1100) throw new Error(`Seite ${i} ließ sich nicht zeichnen (${e.message})`);
-        onProgress?.(`PDF-Seite ${i} von ${doc.numPages}, zweiter Versuch …`);
+  const n = doc.numPages;
+  for (let i = 1; i <= n; i++) {
+    // Jeder Schritt hat eine Zeitgrenze. Ältere Safari-Versionen bleiben sonst still hängen.
+    const step = (what, p, ms = 20000) => {
+      onProgress?.(`PDF-Seite ${i} von ${n}: ${what} …`);
+      return withTimeout(p, ms, `Seite ${i}: ${what} dauerte zu lange`);
+    };
+    try {
+      const page = await step('öffnen', doc.getPage(i));
+      let c;
+      // Ältere iPads haben wenig Speicher für Zeichenflächen: notfalls kleiner zeichnen.
+      for (const w of [1240, 900]) {
+        try { c = await step(w === 1240 ? 'zeichnen' : 'kleiner zeichnen', renderPdfPage(page, w), 35000); break; } catch (e) {
+          console.warn('Seite', i, 'Breite', w, e);
+          if (w === 900) throw e;
+        }
       }
+      const p = await step('umwandeln', fromCanvas(c));
+      c.width = 0; c.height = 0;
+      p.img = await step('anzeigen', loadImg(p.blob));
+      page.cleanup();
+      out.push(p);
+    } catch (e) {
+      // Was bis hierher geladen ist, bleibt erhalten.
+      try { loading.destroy(); } catch { /* egal */ }
+      if (out.length) { out.warning = `${e.message}. Geladen sind die Seiten 1 bis ${out.length}. Lade die übrigen Seiten als Screenshots dazu.`; return out; }
+      throw e;
     }
-    const p = await fromCanvas(c);
-    // Zeichenfläche freigeben und für die Anzeige ein Bild aus dem JPEG nehmen (spart Speicher).
-    try { p.img = await createImageBitmap(p.blob); c.width = 0; c.height = 0; } catch { /* Zeichenfläche behalten */ }
-    page.cleanup();
-    out.push(p);
   }
   loading.destroy();
   return out;
+}
+
+// Bild aus einem JPEG-Blob zum Anzeigen. Ohne createImageBitmap geht es über <img>.
+async function loadImg(blob) {
+  try { return await createImageBitmap(blob); } catch {
+    return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Bild nicht lesbar')); im.src = URL.createObjectURL(blob); });
+  }
 }
 
 const isPdf = (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
@@ -119,7 +137,9 @@ export async function loadWorksheetFiles(files, onProgress) {
     onProgress?.(`Lade „${f.name}“ …`);
     if (isPdf(f)) {
       try {
-        pages.push(...(await pdfToPages(f, onProgress)));
+        const got = await pdfToPages(f, onProgress);
+        if (got.warning) pages.warning = got.warning;
+        pages.push(...got);
       } catch (err) {
         console.error(err);
         throw new Error(`Die PDF „${f.name}“ ließ sich nicht öffnen (${err?.name || 'Fehler'}: ${err?.message || err}). Mach notfalls Screenshots der Seiten und lade die stattdessen.`);

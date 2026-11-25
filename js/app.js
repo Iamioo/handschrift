@@ -561,7 +561,11 @@ $('ws-files').addEventListener('change', async (e) => {
   if (!files.length) return;
   try {
     const pages = await loadWorksheetFiles(files, (msg) => { $('ws-load-status').textContent = msg; });
-    await setSheet(pages);
+    // Weitere Dateien ergänzen das Blatt, wenn eine PDF nur teilweise geladen wurde.
+    const add = sheet.partial ? sheet.concat(pages) : pages;
+    add.partial = !!pages.warning;
+    await setSheet(add);
+    if (pages.warning) $('ws-load-status').textContent = pages.warning;
   } catch (err) {
     console.error(err);
     $('ws-load-status').textContent = 'Laden fehlgeschlagen: ' + (err.message || err);
